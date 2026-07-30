@@ -1,4 +1,7 @@
+#[cfg(test)]
+pub mod contract;
 pub mod error;
+pub mod mock;
 
 use std::fmt;
 
