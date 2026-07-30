@@ -16,10 +16,13 @@ use coreaudio_sys::{
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal,
     kAudioObjectPropertyScopeOutput, kAudioObjectSystemObject, AudioBufferList, AudioDeviceID,
-    AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectHasProperty,
-    AudioObjectID, AudioObjectPropertyAddress, AudioObjectSetPropertyData, CFRelease,
-    CFStringGetCString, CFStringRef, OSStatus,
+    AudioHardwareServiceGetPropertyData, AudioHardwareServiceHasProperty,
+    AudioHardwareServiceSetPropertyData, AudioObjectGetPropertyData,
+    AudioObjectGetPropertyDataSize, AudioObjectHasProperty, AudioObjectID,
+    AudioObjectPropertyAddress, AudioObjectSetPropertyData, CFRelease, CFStringGetCString,
+    CFStringRef, OSStatus,
 };
+use coreaudio_sys::kAudioHardwareServiceDeviceProperty_VirtualMainVolume;
 
 use super::{
     clamp_unit_scalar, AudioBackend, AudioDevice, AudioError, AudioSession, DeviceId, MasterState,
@@ -311,10 +314,14 @@ fn read_volume(device: AudioDeviceID) -> Result<f32, AudioError> {
     }
 
     if found == 0 {
-        // Aggregate devices, most HDMI outputs, and many USB DACs carry their gain in hardware
-        // and expose no scalar at all. Nothing is attenuating the signal, so unity is the honest
-        // reading — reporting a failure here would blank the master card on a working device.
-        // The matching write still returns Unsupported rather than pretending to take effect.
+        // No per-channel scalar either. The HAL's virtual main volume is what the menu-bar
+        // slider shows, and it exists for devices whose gain lives in hardware.
+        if has_virtual_main_volume(device) {
+            return read_virtual_main_volume(device);
+        }
+
+        // Genuinely no software volume anywhere. Nothing is attenuating the signal, so unity is
+        // the honest reading; the matching write still refuses rather than pretending.
         return Ok(1.0);
     }
 
@@ -351,12 +358,79 @@ fn write_volume(device: AudioDeviceID, volume: f32) -> Result<(), AudioError> {
     }
 
     if written == 0 {
+        if has_virtual_main_volume(device) {
+            return write_virtual_main_volume(device, clamped);
+        }
+
         return Err(AudioError::Unsupported(
             "this output device exposes no software volume control".to_owned(),
         ));
     }
 
     Ok(())
+}
+
+/// The property behind the macOS menu-bar volume slider.
+///
+/// A device that carries its gain in hardware — an aggregate, most HDMI outputs, many USB DACs —
+/// exposes no `kAudioDevicePropertyVolumeScalar`, but the HAL still publishes a virtual main
+/// volume for it. Reading the raw device property alone is what made SOMUL report 100% on those
+/// devices instead of the level the user could see in the menu bar.
+fn virtual_main_volume_address() -> AudioObjectPropertyAddress {
+    address(
+        kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
+        kAudioObjectPropertyScopeOutput,
+        kAudioObjectPropertyElementMain,
+    )
+}
+
+fn has_virtual_main_volume(device: AudioDeviceID) -> bool {
+    let address = virtual_main_volume_address();
+
+    // SAFETY: `address` points at a live local for the duration of the call, which only reads it.
+    unsafe { AudioHardwareServiceHasProperty(device, &address) != 0 }
+}
+
+fn read_virtual_main_volume(device: AudioDeviceID) -> Result<f32, AudioError> {
+    let address = virtual_main_volume_address();
+    let mut value = 0.0_f32;
+    let mut size = mem::size_of::<f32>() as u32;
+
+    // SAFETY: the call writes exactly `size` bytes, and `size` is the size of the `f32` local
+    // being pointed at.
+    let status = unsafe {
+        AudioHardwareServiceGetPropertyData(
+            device,
+            &address,
+            0,
+            ptr::null(),
+            &mut size,
+            ptr::from_mut(&mut value).cast::<c_void>(),
+        )
+    };
+
+    check(status, "reading the virtual main volume")?;
+
+    Ok(clamp_unit_scalar(value))
+}
+
+fn write_virtual_main_volume(device: AudioDeviceID, volume: f32) -> Result<(), AudioError> {
+    let address = virtual_main_volume_address();
+    let clamped = clamp_unit_scalar(volume);
+
+    // SAFETY: the call reads exactly `size_of::<f32>()` bytes from a live local of that type.
+    let status = unsafe {
+        AudioHardwareServiceSetPropertyData(
+            device,
+            &address,
+            0,
+            ptr::null(),
+            mem::size_of::<f32>() as u32,
+            ptr::from_ref(&clamped).cast::<c_void>(),
+        )
+    };
+
+    check(status, "setting the virtual main volume")
 }
 
 fn mute_address() -> AudioObjectPropertyAddress {
