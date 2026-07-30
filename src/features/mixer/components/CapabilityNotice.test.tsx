@@ -1,0 +1,80 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+
+import { EmptyState } from '@/components/common/EmptyState';
+import { CapabilityNotice } from '@/features/mixer/components/CapabilityNotice';
+import type { PlatformCapabilities } from '@/types/ipc';
+
+const masterOnly = (reason: string | null): PlatformCapabilities => ({
+  hasPerAppVolume: false,
+  hasPerAppMute: false,
+  hasPerAppMeter: false,
+  hasPerAppRouting: false,
+  unsupportedReason: reason,
+});
+
+describe('EmptyState', () => {
+  it('renders its headline and subline', () => {
+    render(<EmptyState headline="No audio playing" subline="Start an app to see it here" />);
+
+    expect(screen.getByText('No audio playing')).toBeInTheDocument();
+    expect(screen.getByText('Start an app to see it here')).toBeInTheDocument();
+  });
+
+  it('offers refresh only when a handler is supplied', async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
+
+    const { rerender } = render(<EmptyState headline="No audio playing" subline="Nothing yet" />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+
+    rerender(<EmptyState headline="No audio playing" subline="Nothing yet" onRefresh={onRefresh} />);
+    await user.click(screen.getByRole('button', { name: /Refresh/ }));
+
+    expect(onRefresh).toHaveBeenCalledOnce();
+  });
+
+  /** DESIGN.md §8: never gradient-fill a stroke icon — it breaks currentColor and the theme swap. */
+  it('renders the icon as a flat brand weight, not a gradient fill', () => {
+    const { container } = render(<EmptyState headline="No audio" subline="Nothing yet" />);
+
+    const icon = container.querySelector('svg');
+
+    expect(icon).toHaveClass('text-primary-stroke');
+    expect(icon?.getAttribute('class')).not.toContain('bg-signature');
+  });
+});
+
+describe('CapabilityNotice', () => {
+  /** ARCHITECTURE.md §2.2.5: the reason is the backend's, and is rendered verbatim. */
+  it('renders unsupportedReason verbatim', () => {
+    const reason =
+      'macOS does not expose per-app volume control. SOMUL controls the system output instead.';
+
+    render(<CapabilityNotice capabilities={masterOnly(reason)} />);
+
+    expect(screen.getByText(reason)).toBeInTheDocument();
+  });
+
+  it('falls back to a plain explanation when the backend supplies none', () => {
+    render(<CapabilityNotice capabilities={masterOnly(null)} />);
+
+    expect(screen.getByTestId('empty-state')).toHaveTextContent(
+      'Per-app volume control is not available on this system',
+    );
+  });
+
+  /**
+   * GOAL.md §7.3, the highest-value refutation for this task: does the macOS path render dead
+   * sliders instead of a notice? An empty state that explains the limit is honest; a row of
+   * disabled controls is not (§2.2.5).
+   */
+  it('renders ZERO session rows and zero controls when per-app volume is absent', () => {
+    render(<CapabilityNotice capabilities={masterOnly('macOS exposes master volume only.')} />);
+
+    expect(screen.queryAllByTestId('app-audio-row')).toHaveLength(0);
+    expect(screen.queryAllByRole('slider')).toHaveLength(0);
+    expect(screen.queryAllByRole('button')).toHaveLength(0);
+  });
+});
