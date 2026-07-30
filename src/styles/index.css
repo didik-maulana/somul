@@ -298,8 +298,22 @@
   * {
     @apply border-border;
   }
+
+  /* The window is transparent and the panel draws its own rounded surface, so nothing above the
+     panel may paint a background — an opaque body fills the square window and shows through at
+     the four corners as hard edges no border-radius on the panel can hide.
+
+     `bg-background` therefore lives on the panel root, not here. Overflow is clipped so the
+     shadow and the vibrancy layer cannot spill past the rounded edge either. */
+  html,
+  body,
+  #root {
+    background: transparent;
+    overflow: hidden;
+  }
+
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply text-foreground font-sans antialiased;
     font-feature-settings: "cv11", "ss01";
     -webkit-font-smoothing: antialiased;
   }

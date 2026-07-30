@@ -39,6 +39,13 @@ pub const PANEL_LABEL: &str = "main";
 pub const PANEL_WIDTH: f64 = 360.0;
 pub const PANEL_HEIGHT: f64 = 520.0;
 
+/// Corner radius of the panel, in logical pixels.
+///
+/// Shared by the CSS surface and the macOS vibrancy layer. The vibrancy view is a real NSView
+/// filling the whole window, so it has to be rounded natively — a rounded div on top of a square
+/// view leaves the material showing through as four hard corners.
+pub const PANEL_RADIUS: f64 = 20.0;
+
 pub fn run() {
     let mut builder = tauri::Builder::default();
 
@@ -141,8 +148,10 @@ fn apply_surface_blur(panel: &WebviewWindow) {
             panel,
             window_vibrancy::NSVisualEffectMaterial::HudWindow,
             None,
-            None,
+            Some(PANEL_RADIUS),
         );
+
+        round_macos_window_corners(panel);
     }
 
     #[cfg(target_os = "windows")]
@@ -152,6 +161,44 @@ fn apply_surface_blur(panel: &WebviewWindow) {
 
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let _ = panel;
+}
+
+/// Clips the window's content to the panel's rounded rectangle.
+///
+/// `apply_vibrancy` takes a radius, but it forwards to a private `setCornerRadius:` on
+/// `NSVisualEffectView` that current macOS ignores, so the material stays square and shows behind
+/// the rounded CSS surface as four hard corners.
+///
+/// Rounding the content view's own layer with `masksToBounds` clips every subview — the vibrancy
+/// view and the WebView alike — using documented Core Animation API instead of a private one.
+#[cfg(target_os = "macos")]
+fn round_macos_window_corners(panel: &WebviewWindow) {
+    use objc2_app_kit::NSWindow;
+
+    let Ok(handle) = panel.ns_window() else {
+        return;
+    };
+
+    // SAFETY: `ns_window` hands back the panel's live `NSWindow`, which Tauri keeps alive for as
+    // long as the window exists. The reference is used only within this call, and every method
+    // below runs on the main thread because `setup` does.
+    let window: &NSWindow = unsafe { &*handle.cast::<NSWindow>() };
+
+    let Some(content) = window.contentView() else {
+        return;
+    };
+
+    content.setWantsLayer(true);
+
+    let Some(layer) = content.layer() else {
+        return;
+    };
+
+    layer.setCornerRadius(PANEL_RADIUS);
+    layer.setMasksToBounds(true);
+
+    // The shadow is cached from the old square path and would otherwise outline the corners.
+    window.invalidateShadow();
 }
 
 #[cfg(desktop)]
