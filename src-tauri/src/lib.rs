@@ -12,6 +12,27 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 
 use crate::tray::PanelPin;
 
+/// Selects the adapter for the build target (§4).
+///
+/// An unimplemented target fails the build by name rather than falling back to
+/// [`MockAudioBackend`](audio::mock::MockAudioBackend). A mock standing in for a real backend
+/// inside a shipped binary would present working controls that move nothing — the same dishonesty
+/// §2.4 forbids at the trait level, one layer up.
+#[cfg(target_os = "macos")]
+fn platform_backend() -> std::sync::Arc<dyn audio::AudioBackend> {
+    std::sync::Arc::new(audio::macos::MacOsAudioBackend::new())
+}
+
+#[cfg(target_os = "windows")]
+compile_error!(
+    "the Windows WASAPI adapter is not implemented — see GOAL.md T-022 and DECISIONS.md D-002"
+);
+
+#[cfg(target_os = "linux")]
+compile_error!(
+    "the Linux PipeWire/PulseAudio adapters are not implemented — see GOAL.md T-023, T-024 and DECISIONS.md D-002"
+);
+
 pub const PANEL_LABEL: &str = "main";
 pub const PANEL_WIDTH: f64 = 360.0;
 pub const PANEL_HEIGHT: f64 = 520.0;
@@ -40,6 +61,21 @@ pub fn run() {
         .manage(PanelPin::default())
         .manage(shortcut::HotkeyState::default())
         .setup(|app| {
+            // One adapter instance, shared by the command layer and the meter loop. Two would
+            // mean two OS enumerators whose views drift apart.
+            let backend = platform_backend();
+            let gate = std::sync::Arc::new(meter::MeterGate::new());
+
+            app.manage(commands::AudioState::new(
+                std::sync::Arc::clone(&backend),
+                std::sync::Arc::clone(&gate),
+            ));
+            app.manage(meter::MeterLoop::start(
+                backend,
+                gate,
+                std::sync::Arc::new(meter::EventPeakEmitter::new(app.handle().clone())),
+            ));
+
             // §8.1 ordering: the tray is registered first and is interactive from that point.
             // The WebView then boots behind a hidden window, so its cost never lands on the
             // 300 ms tray-ready measurement.
