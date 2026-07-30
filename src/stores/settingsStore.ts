@@ -1,0 +1,45 @@
+import { create } from 'zustand';
+
+export type Theme = 'dark' | 'light' | 'system';
+
+/** Mirrors `AppSettings` in `src-tauri/src/settings.rs` (ARCHITECTURE.md §11). */
+export interface SettingsState {
+  hotkey: string;
+  theme: Theme;
+  shouldLaunchAtLogin: boolean;
+  isPanelPinned: boolean;
+  /** §8.3: set when the hotkey could not be registered. The app stays usable through the tray. */
+  hotkeyWarning: string | null;
+
+  setHotkey: (hotkey: string) => void;
+  setTheme: (theme: Theme) => void;
+  setShouldLaunchAtLogin: (shouldLaunchAtLogin: boolean) => void;
+  setPanelPinned: (isPanelPinned: boolean) => void;
+  setHotkeyWarning: (hotkeyWarning: string | null) => void;
+}
+
+export const DEFAULT_HOTKEY = 'CmdOrCtrl+Shift+V';
+
+export const useSettingsStore = create<SettingsState>()((set) => ({
+  hotkey: DEFAULT_HOTKEY,
+  theme: 'system',
+  shouldLaunchAtLogin: false,
+  isPanelPinned: false,
+  hotkeyWarning: null,
+
+  setHotkey: (hotkey) => {
+    set({ hotkey });
+  },
+  setTheme: (theme) => {
+    set({ theme });
+  },
+  setShouldLaunchAtLogin: (shouldLaunchAtLogin) => {
+    set({ shouldLaunchAtLogin });
+  },
+  setPanelPinned: (isPanelPinned) => {
+    set({ isPanelPinned });
+  },
+  setHotkeyWarning: (hotkeyWarning) => {
+    set({ hotkeyWarning });
+  },
+}));
