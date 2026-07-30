@@ -127,14 +127,15 @@ describe('PanelFooter', () => {
     expect(screen.getByText('1 app')).toBeInTheDocument();
   });
 
-  /** The hotkey renders as `<kbd>` chips, one per key. */
-  it('renders the hotkey as one chip per key', () => {
+  /** The shortcut is one thing to press, so it reads as one chip joined by `+`. */
+  it('renders the hotkey as a single chip', () => {
     const { container } = render(
       <PanelFooter activeSessionCount={0} hotkey="CmdOrCtrl+Shift+V" />,
     );
 
-    const keys = [...container.querySelectorAll('kbd')].map((chip) => chip.textContent);
+    const chips = [...container.querySelectorAll('kbd')];
 
-    expect(keys).toEqual(['CmdOrCtrl', 'Shift', 'V']);
+    expect(chips).toHaveLength(1);
+    expect(chips[0].textContent).toMatch(/^(⌘|Ctrl) \+ Shift \+ V$/);
   });
 });
