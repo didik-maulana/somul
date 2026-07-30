@@ -449,7 +449,19 @@ impl AudioBackend for MacOsAudioBackend {
             &address,
             &requested,
             "setting the default output device",
-        )
+        )?;
+
+        // CoreAudio returns noErr for a device the HAL will not actually adopt as the system
+        // output — several virtual and driver-provided devices behave this way. Reporting
+        // success there would be the silent no-op §2.4 forbids, so the write is read back.
+        if default_output_device()? == requested {
+            return Ok(());
+        }
+
+        Err(AudioError::BackendFailure(format!(
+            "the system did not adopt {} as the default output device",
+            device
+        )))
     }
 
     fn set_session_output_device(
@@ -571,4 +583,5 @@ mod tests {
         assert!(!master.device_name.is_empty());
     }
 }
+
 

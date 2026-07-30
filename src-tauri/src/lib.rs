@@ -5,6 +5,7 @@ pub mod commands;
 pub mod meter;
 #[cfg(desktop)]
 pub mod shortcut;
+pub mod settings;
 pub mod tray;
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};

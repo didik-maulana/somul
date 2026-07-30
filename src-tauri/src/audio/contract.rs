@@ -35,6 +35,30 @@ fn is_unit_scalar(value: f32) -> bool {
     value.is_finite() && (0.0..=1.0).contains(&value)
 }
 
+/// Polls until `settled` holds or the budget runs out.
+///
+/// A default-device change is asynchronous on real hardware — CoreAudio accepts the write and
+/// notifies listeners afterwards, so an immediate read-back can still report the old device.
+/// The mock settles on the first poll, so this costs it nothing.
+fn wait_until(mut settled: impl FnMut() -> bool) -> bool {
+    const BUDGET: std::time::Duration = std::time::Duration::from_millis(500);
+    const POLL: std::time::Duration = std::time::Duration::from_millis(10);
+
+    let deadline = std::time::Instant::now() + BUDGET;
+
+    loop {
+        if settled() {
+            return true;
+        }
+
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+
+        std::thread::sleep(POLL);
+    }
+}
+
 /// §2.2.5: a backend without per-app support must supply the reason, because the UI renders it
 /// verbatim in place of the session list. Reporting no capability and no reason leaves the panel
 /// with nothing honest to say.
@@ -348,6 +372,12 @@ pub fn exactly_one_output_device_is_default(backend: &dyn AudioBackend) {
 /// Restores the original default before returning. Against a real adapter this check moves the
 /// machine's actual output, and a test suite has no business leaving a developer's audio pointed
 /// somewhere else.
+///
+/// Not every enumerated output can become the system default — virtual and driver-provided
+/// devices are commonly refused by the OS. The check walks the candidates and requires that a
+/// device the adapter reports switching *did* switch. An adapter that returns `Ok` without the
+/// change taking effect fails here; a machine whose only alternate output the OS refuses simply
+/// has nothing to prove, and the adapter must have said so rather than claiming success.
 pub fn default_output_device_switches(backend: &dyn AudioBackend) {
     let _guard = exclusive();
 
@@ -355,28 +385,34 @@ pub fn default_output_device_switches(backend: &dyn AudioBackend) {
     let Some(original) = devices.iter().find(|device| device.is_default) else {
         return;
     };
-    let Some(target) = devices.iter().find(|device| !device.is_default) else {
-        return;
+
+    let is_default = |expected: &super::DeviceId| {
+        backend
+            .list_output_devices()
+            .ok()
+            .and_then(|devices| devices.into_iter().find(|device| device.is_default))
+            .is_some_and(|device| &device.device_id == expected)
     };
 
-    backend
-        .set_default_output_device(&target.device_id)
-        .expect("switching to an enumerated device must succeed");
+    for target in devices.iter().filter(|device| !device.is_default) {
+        if backend.set_default_output_device(&target.device_id).is_err() {
+            continue;
+        }
 
-    let observed = backend
-        .list_output_devices()
-        .expect("devices")
-        .into_iter()
-        .find(|device| device.is_default)
-        .expect("a default device survives the switch");
+        let switched = wait_until(|| is_default(&target.device_id));
 
-    let restored = backend.set_default_output_device(&original.device_id);
+        backend
+            .set_default_output_device(&original.device_id)
+            .expect("the original default output device must be restorable");
+        wait_until(|| is_default(&original.device_id));
 
-    assert_eq!(
-        observed.device_id, target.device_id,
-        "the requested device did not become default"
-    );
-    restored.expect("the original default output device must be restorable");
+        assert!(
+            switched,
+            "set_default_output_device reported success for {} but the default did not change",
+            target.device_id
+        );
+        return;
+    }
 }
 
 pub fn switching_to_an_unknown_device_reports_device_not_found(backend: &dyn AudioBackend) {
