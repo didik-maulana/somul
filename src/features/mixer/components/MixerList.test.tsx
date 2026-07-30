@@ -1,0 +1,121 @@
+import { render, screen } from '@testing-library/react';
+import { describe, expect, it, vi } from 'vitest';
+
+import { MixerList } from '@/features/mixer/components/MixerList';
+import type { PeakStream } from '@/features/mixer/hooks/usePeakStream';
+import type { AudioSession, DeviceId, PlatformCapabilities, SessionId } from '@/types/ipc';
+
+const stubStream: PeakStream = { register: () => () => undefined };
+
+const fullPerApp: PlatformCapabilities = {
+  hasPerAppVolume: true,
+  hasPerAppMute: true,
+  hasPerAppMeter: true,
+  hasPerAppRouting: false,
+  unsupportedReason: null,
+};
+
+const masterOnly: PlatformCapabilities = {
+  hasPerAppVolume: false,
+  hasPerAppMute: false,
+  hasPerAppMeter: false,
+  hasPerAppRouting: false,
+  unsupportedReason: 'macOS exposes master volume only in v1.',
+};
+
+const session = (sessionId: string, displayName: string): AudioSession => ({
+  sessionId: sessionId as SessionId,
+  pid: 4821,
+  displayName,
+  processName: `${displayName.toLowerCase()}.exe`,
+  iconDataUri: null,
+  volume: 0.5,
+  isMuted: false,
+  outputDeviceId: 'mock:speakers' as DeviceId,
+  state: 'active',
+});
+
+const renderList = (overrides: Partial<Parameters<typeof MixerList>[0]> = {}) =>
+  render(
+    <MixerList
+      capabilities={fullPerApp}
+      sessions={[session('mock:s:1', 'Spotify')]}
+      peakStream={stubStream}
+      draggingSessionIds={new Set<SessionId>()}
+      onVolumeChange={vi.fn()}
+      onVolumeCommit={vi.fn()}
+      onMuteToggle={vi.fn()}
+      onRefresh={vi.fn()}
+      {...overrides}
+    />,
+  );
+
+describe('MixerList', () => {
+  it('renders a row per session on a capable platform', () => {
+    renderList({
+      sessions: [session('mock:s:1', 'Spotify'), session('mock:s:2', 'Chrome')],
+    });
+
+    expect(screen.getAllByTestId('app-audio-row')).toHaveLength(2);
+  });
+
+  it('holds a neutral surface until capabilities arrive', () => {
+    renderList({ capabilities: null });
+
+    expect(screen.getByTestId('mixer-loading')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('app-audio-row')).toHaveLength(0);
+  });
+
+  /**
+   * ARCHITECTURE.md §2.2.5 and GOAL.md §7.3: the macOS path must show the notice, never a row of
+   * dead sliders.
+   */
+  it('renders the notice and ZERO session rows when per-app volume is absent', () => {
+    renderList({
+      capabilities: masterOnly,
+      sessions: [session('mock:s:1', 'Spotify'), session('mock:s:2', 'Chrome')],
+    });
+
+    expect(screen.getByText('macOS exposes master volume only in v1.')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('app-audio-row')).toHaveLength(0);
+    expect(screen.queryAllByRole('slider')).toHaveLength(0);
+  });
+
+  /** §6: the branch is on capabilities, not on an OS sniff. */
+  it('gates on capabilities rather than the user agent', () => {
+    const userAgent = vi.spyOn(globalThis.navigator, 'userAgent', 'get');
+
+    renderList({ capabilities: masterOnly });
+
+    expect(userAgent).not.toHaveBeenCalled();
+  });
+
+  it('offers an empty state with refresh when the platform is capable but silent', () => {
+    const onRefresh = vi.fn();
+
+    renderList({ sessions: [], onRefresh });
+
+    expect(screen.getByText('No audio playing')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Refresh/ })).toBeInTheDocument();
+  });
+
+  it('omits the meter when the platform has no per-app metering', () => {
+    renderList({ capabilities: { ...fullPerApp, hasPerAppMeter: false } });
+
+    expect(screen.getAllByTestId('app-audio-row')).toHaveLength(1);
+    expect(screen.queryByTestId('peak-meter')).not.toBeInTheDocument();
+  });
+
+  /** DESIGN.md §9.1: the scroll region contains its own overscroll. */
+  it('contains overscroll in the scroll region', () => {
+    renderList();
+
+    expect(screen.getByTestId('mixer-scroll')).toHaveClass('overscroll-contain');
+  });
+
+  it('marks the dragging row', () => {
+    renderList({ draggingSessionIds: new Set(['mock:s:1' as SessionId]) });
+
+    expect(screen.getByTestId('app-audio-row')).toHaveAttribute('data-dragging', 'true');
+  });
+});
