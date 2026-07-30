@@ -244,8 +244,28 @@ pub fn master_state_is_wire_legal(backend: &dyn AudioBackend) {
     );
 }
 
+/// A hardware-gain device — an aggregate, most HDMI outputs, many USB DACs — exposes no software
+/// volume or mute. §2.4 says the answer there is `Unsupported`, never a no-op, so that is the one
+/// alternative outcome the suite accepts. Any other error, or a write that reports success without
+/// taking effect, still fails.
+fn assert_supported_or_refused(result: Result<(), AudioError>, operation: &str) -> bool {
+    match result {
+        Ok(()) => true,
+        Err(AudioError::Unsupported(reason)) => {
+            assert!(
+                !reason.trim().is_empty(),
+                "{operation} returned Unsupported with a blank reason"
+            );
+            false
+        }
+        Err(other) => panic!("{operation} failed with {other:?}"),
+    }
+}
+
 pub fn master_volume_round_trips_and_clamps(backend: &dyn AudioBackend) {
-    backend.set_master_volume(0.4).expect("master volume write");
+    if !assert_supported_or_refused(backend.set_master_volume(0.4), "set_master_volume") {
+        return;
+    }
 
     let observed = backend.master().expect("master").volume;
     assert!(
@@ -264,6 +284,10 @@ pub fn master_volume_round_trips_and_clamps(backend: &dyn AudioBackend) {
 }
 
 pub fn master_mute_round_trips(backend: &dyn AudioBackend) {
+    if !assert_supported_or_refused(backend.set_master_mute(true), "set_master_mute") {
+        return;
+    }
+
     for written in [true, false] {
         backend.set_master_mute(written).expect("master mute write");
 

@@ -1,6 +1,8 @@
 #[cfg(test)]
 pub mod contract;
 pub mod error;
+#[cfg(target_os = "macos")]
+pub mod macos;
 pub mod mock;
 
 use std::fmt;
