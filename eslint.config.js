@@ -36,6 +36,26 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      // ARCHITECTURE.md §5: src/lib/ipc.ts is the only tauri-api import site, which is what
+      // keeps the frontend testable without a Tauri runtime.
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@tauri-apps/api', '@tauri-apps/api/*', '@tauri-apps/plugin-*'],
+              message:
+                'Import the typed wrappers from @/lib/ipc instead. Only src/lib/ipc.ts may touch @tauri-apps/api (ARCHITECTURE.md §5).',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ['src/lib/ipc.ts'],
+    rules: {
+      'no-restricted-imports': 'off',
     },
   },
   {
