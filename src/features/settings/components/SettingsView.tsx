@@ -4,8 +4,8 @@ import { ChevronLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { HotkeyRecorder } from "@/features/settings/components/HotkeyRecorder";
-import { cn } from "@/lib/utils";
-import type { AppSettings, Theme } from "@/types/ipc";
+import { ThemeSwitcher } from "@/features/settings/components/ThemeSwitcher";
+import type { AppSettings } from "@/types/ipc";
 
 export interface SettingsViewProps {
   settings: AppSettings | null;
@@ -13,12 +13,6 @@ export interface SettingsViewProps {
   onSettingsChange: (settings: AppSettings) => void;
   onClose: () => void;
 }
-
-const THEMES: { value: Theme; label: string }[] = [
-  { value: "system", label: "System" },
-  { value: "dark", label: "Dark" },
-  { value: "light", label: "Light" },
-];
 
 const Row: FC<{ label: string; hint?: string; children: ReactNode }> = ({
   label,
@@ -87,44 +81,12 @@ export const SettingsView: FC<SettingsViewProps> = ({
         </Row>
 
         <Row label="Theme" hint="System follows macOS appearance">
-          <div
-            role="radiogroup"
-            aria-label="Theme"
-            className="bg-muted relative flex shrink-0 rounded-sm p-0.5"
-          >
-            {/* One pill that slides, rather than a background toggling on each option. Moving a
-                single element is what reads as the selection travelling; swapping backgrounds
-                just blinks. Transform only, so it never triggers layout. */}
-            <span
-              aria-hidden="true"
-              data-testid="theme-indicator"
-              className="bg-card absolute inset-y-0.5 left-0.5 rounded-xs transition-transform duration-[200ms] ease-[var(--ease-decelerate)] motion-reduce:transition-none"
-              style={{
-                width: `calc((100% - 0.25rem) / ${THEMES.length.toString()})`,
-                transform: `translateX(${(THEMES.findIndex((theme) => theme.value === settings.theme) * 100).toString()}%)`,
-              }}
-            />
-
-            {THEMES.map((theme) => (
-              <button
-                key={theme.value}
-                type="button"
-                role="radio"
-                aria-checked={settings.theme === theme.value}
-                onClick={() => {
-                  onSettingsChange({ ...settings, theme: theme.value });
-                }}
-                className={cn(
-                  "text-caption relative z-10 rounded-xs px-2 py-1 transition-colors duration-[200ms]",
-                  settings.theme === theme.value
-                    ? "text-foreground"
-                    : "text-muted-foreground",
-                )}
-              >
-                {theme.label}
-              </button>
-            ))}
-          </div>
+          <ThemeSwitcher
+            theme={settings.theme}
+            onThemeChange={(theme) => {
+              onSettingsChange({ ...settings, theme });
+            }}
+          />
         </Row>
 
         <Row label="Launch at login" hint="Start Somul when you sign in">
