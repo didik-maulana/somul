@@ -22,6 +22,76 @@ fn exclusive() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Puts the machine's audio back the way it was found.
+///
+/// These checks run against a real adapter, so they move the actual system volume, the actual
+/// mute, and actual per-app levels. A test suite has no business leaving a developer's audio
+/// somewhere else — and the clamping check in particular ends by writing an out-of-range value
+/// that lands at full volume.
+///
+/// Restoring on `Drop` rather than at the end of the function means a failed assertion still
+/// puts the volume back on its way out.
+struct RestoreMaster<'a> {
+    backend: &'a dyn AudioBackend,
+    original: Option<super::MasterState>,
+}
+
+impl<'a> RestoreMaster<'a> {
+    fn new(backend: &'a dyn AudioBackend) -> Self {
+        Self {
+            backend,
+            original: backend.master().ok(),
+        }
+    }
+}
+
+impl Drop for RestoreMaster<'_> {
+    fn drop(&mut self) {
+        let Some(original) = &self.original else {
+            return;
+        };
+
+        let _ = self.backend.set_master_volume(original.volume);
+        let _ = self.backend.set_master_mute(original.is_muted);
+    }
+}
+
+/// The per-app equivalent. On Windows and Linux these checks move real applications' volumes.
+struct RestoreSession<'a> {
+    backend: &'a dyn AudioBackend,
+    original: Option<super::AudioSession>,
+}
+
+impl<'a> RestoreSession<'a> {
+    fn new(backend: &'a dyn AudioBackend, id: &SessionId) -> Self {
+        let original = backend
+            .list_sessions()
+            .ok()
+            .and_then(|sessions| {
+                sessions
+                    .into_iter()
+                    .find(|session| &session.session_id == id)
+            });
+
+        Self { backend, original }
+    }
+}
+
+impl Drop for RestoreSession<'_> {
+    fn drop(&mut self) {
+        let Some(original) = &self.original else {
+            return;
+        };
+
+        let _ = self
+            .backend
+            .set_session_volume(&original.session_id, original.volume);
+        let _ = self
+            .backend
+            .set_session_mute(&original.session_id, original.is_muted);
+    }
+}
+
 fn unknown_session() -> SessionId {
     SessionId::from_backend_identifier("contract:session:does-not-exist")
         .unwrap_or_else(|_| unreachable!("the probe identifier is namespaced"))
@@ -171,6 +241,7 @@ pub fn session_volume_round_trips(backend: &dyn AudioBackend) {
     let Some(target) = sessions.first() else {
         return;
     };
+    let _restore = RestoreSession::new(backend, &target.session_id);
 
     backend
         .set_session_volume(&target.session_id, 0.25)
@@ -200,6 +271,7 @@ pub fn session_volume_is_clamped(backend: &dyn AudioBackend) {
     let Some(target) = sessions.first() else {
         return;
     };
+    let _restore = RestoreSession::new(backend, &target.session_id);
 
     for written in [-1.5_f32, 4.0_f32] {
         backend
@@ -230,6 +302,7 @@ pub fn session_mute_round_trips(backend: &dyn AudioBackend) {
     let Some(target) = sessions.first() else {
         return;
     };
+    let _restore = RestoreSession::new(backend, &target.session_id);
 
     for written in [true, false] {
         backend
@@ -310,6 +383,7 @@ fn assert_supported_or_refused(result: Result<(), AudioError>, operation: &str) 
 
 pub fn master_volume_round_trips_and_clamps(backend: &dyn AudioBackend) {
     let _guard = exclusive();
+    let _restore = RestoreMaster::new(backend);
 
     if !assert_supported_or_refused(backend.set_master_volume(0.4), "set_master_volume") {
         return;
@@ -333,6 +407,7 @@ pub fn master_volume_round_trips_and_clamps(backend: &dyn AudioBackend) {
 
 pub fn master_mute_round_trips(backend: &dyn AudioBackend) {
     let _guard = exclusive();
+    let _restore = RestoreMaster::new(backend);
 
     if !assert_supported_or_refused(backend.set_master_mute(true), "set_master_mute") {
         return;
