@@ -149,10 +149,11 @@ export const setPanelVisibility = (isVisible: boolean): Promise<void> =>
   mutation('set_panel_visibility', { isVisible });
 
 /**
- * Keeps the panel open when it loses focus.
+ * Puts the panel on every desktop, or back on just one.
  *
- * Unpinned, the panel hides as soon as you click elsewhere — which makes it impossible to adjust
- * an app's volume while watching that app. Pinning suspends that behaviour.
+ * The panel stays open until the tray or the hotkey closes it either way. Unpinned it lives on
+ * the desktop it was opened on; pinned it follows you, so an app's volume can be adjusted from
+ * wherever that app is.
  */
 export const setPanelPinned = (isPinned: boolean): Promise<void> =>
   mutation('set_panel_pinned', { isPinned });

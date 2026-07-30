@@ -71,9 +71,11 @@ the tray never receives the event and the panel opens at the screen centre" is u
 A literal with a non-obvious value gets a constant and a derivation.
 
 ```rust
-/// Becoming key over another application is not instant, and macOS reports a spurious
-/// focus-loss in the gap. Hiding on that would make the panel openable only from the desktop.
-const SHOW_SETTLE: Duration = Duration::from_millis(400);
+/// Master state is polled every Nth meter tick rather than every tick. The OS volume can be
+/// changed from outside the app — menu bar, keyboard keys, System Settings — and there is no
+/// cheaper way to notice than asking. At 30 Hz this works out to roughly 5 Hz, fast enough that
+/// dragging the system slider looks live and slow enough to stay off the hot path.
+const MASTER_POLL_EVERY_TICKS: u32 = 6;
 ```
 
 ### 5. Public API carries a doc comment

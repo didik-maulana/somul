@@ -84,14 +84,14 @@ describe('PanelHeader', () => {
       <PanelHeader isPinned={false} onPinToggle={noop} onSettingsOpen={noop} />,
     );
 
-    expect(screen.getByRole('button', { name: 'Pin panel open' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Show on all desktops' })).toHaveAttribute(
       'aria-pressed',
       'false',
     );
 
     rerender(<PanelHeader isPinned onPinToggle={noop} onSettingsOpen={noop} />);
 
-    expect(screen.getByRole('button', { name: 'Unpin panel' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Show on this desktop only' })).toHaveAttribute(
       'aria-pressed',
       'true',
     );
@@ -110,7 +110,7 @@ describe('PanelHeader', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'Pin panel open' }));
+    await user.click(screen.getByRole('button', { name: 'Show on all desktops' }));
     await user.click(screen.getByRole('button', { name: 'Open settings' }));
 
     expect(handlePinToggle).toHaveBeenCalledOnce();

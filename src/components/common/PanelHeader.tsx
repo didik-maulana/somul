@@ -36,7 +36,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
       variant="ghost"
       size="icon"
       className="size-7"
-      aria-label={isPinned ? 'Unpin panel' : 'Pin panel open'}
+      aria-label={isPinned ? 'Show on this desktop only' : 'Show on all desktops'}
       aria-pressed={isPinned}
       onClick={onPinToggle}
     >

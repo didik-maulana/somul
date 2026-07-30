@@ -130,7 +130,7 @@ describe('SettingsView', () => {
   it('reports the pin', async () => {
     const { onSettingsChange, user } = renderView();
 
-    await user.click(screen.getByRole('switch', { name: 'Keep panel open' }));
+    await user.click(screen.getByRole('switch', { name: 'Show on all desktops' }));
 
     expect(onSettingsChange).toHaveBeenCalledWith({ ...settings, isPanelPinned: true });
   });

@@ -10,7 +10,6 @@ use tauri::{AppHandle, Runtime};
 
 use crate::settings::{self, AppSettings};
 use crate::shortcut::{self, HotkeyStatus};
-use crate::tray::PanelState;
 
 /// The result of applying a settings change.
 ///
@@ -100,11 +99,7 @@ fn apply_launch_at_login<R: Runtime>(
 }
 
 fn apply_pin<R: Runtime>(app: &AppHandle<R>, applied: &AppSettings) {
-    use tauri::Manager;
-
-    if let Some(state) = app.try_state::<PanelState>() {
-        state.set_pinned(applied.is_panel_pinned);
-    }
+    crate::tray::apply_pin(app, applied.is_panel_pinned);
 }
 
 /// Frees the global shortcut while the user records a replacement, and restores it afterwards.

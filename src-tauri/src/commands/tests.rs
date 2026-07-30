@@ -243,8 +243,8 @@ fn panel_visibility_is_the_only_command_that_touches_the_meter_gate() {
     assert!(!state.is_panel_visible());
 }
 
-/// Pinning suspends the focus-loss rule. The command is what carries the user's choice to the
-/// backend that owns that rule — a store-only toggle would light the button up and change nothing.
+/// The command is what carries the pin to the backend that owns the window — a store-only toggle
+/// would light the button up and leave the panel on one desktop.
 #[test]
 fn pinning_reaches_the_backend_state() {
     let webview = full_per_app();

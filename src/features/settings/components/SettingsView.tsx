@@ -99,10 +99,10 @@ export const SettingsView: FC<SettingsViewProps> = ({
           />
         </Row>
 
-        <Row label="Keep panel open" hint="Stay open when you click elsewhere">
+        <Row label="Show on all desktops" hint="Stay visible when you switch desktops">
           <Switch
             checked={settings.isPanelPinned}
-            aria-label="Keep panel open"
+            aria-label="Show on all desktops"
             onCheckedChange={(isPanelPinned) => {
               onSettingsChange({ ...settings, isPanelPinned });
             }}

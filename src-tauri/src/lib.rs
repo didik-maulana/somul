@@ -64,7 +64,6 @@ pub fn run() {
     }
 
     builder
-        .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(somul_command_handlers!())
         .manage(PanelState::default())
@@ -95,20 +94,16 @@ pub fn run() {
             // Ordering matters: the tray is registered first and is interactive from that point.
             // The WebView then boots behind a hidden window, so its cost never lands on the
             // 300 ms tray-ready measurement.
-            let has_tray = tray::register(app.handle());
-            let panel = build_panel(app.handle(), has_tray)?;
 
-            panel.on_window_event({
-                let panel = panel.clone();
-                move |event| tray::handle_window_event(&panel, event)
-            });
+            let has_tray = tray::register(app.handle());
+            build_panel(app.handle(), has_tray)?;
 
             // Settings are applied here rather than left to the UI: the hotkey and the pin have
             // to work before the panel is ever opened, and the panel is what would otherwise
             // apply them.
             let stored = settings::load(app.handle());
 
-            app.state::<PanelState>().set_pinned(stored.is_panel_pinned);
+            tray::apply_pin(app.handle(), stored.is_panel_pinned);
 
             // A hotkey another app already owns is a degraded state, not a startup failure — the
             // status is kept so the settings view can warn about it.
@@ -136,6 +131,10 @@ fn build_panel(app: &AppHandle, has_tray: bool) -> tauri::Result<WebviewWindow> 
         .resizable(false)
         .skip_taskbar(has_tray)
         .always_on_top(has_tray)
+        // Spaces are handled natively on macOS, and depend on the pin — see
+        // `set_macos_collection_behavior`. This flag is the unconditional form of the pinned
+        // behaviour, so setting it here would make every panel behave as though pinned.
+        .visible_on_all_workspaces(false)
         .transparent(true)
         .build()?;
 
@@ -185,17 +184,30 @@ fn apply_surface_blur(panel: &WebviewWindow) {
 /// Rounding the content view's own layer with `masksToBounds` clips every subview — the vibrancy
 /// view and the WebView alike — using documented Core Animation API instead of a private one.
 #[cfg(target_os = "macos")]
-fn round_macos_window_corners(panel: &WebviewWindow) {
-    use objc2_app_kit::NSWindow;
+/// Borrows the panel's underlying `NSWindow`, or `None` when there is not a real one behind it.
+///
+/// Every AppKit tweak below needs the same three lines — fetch the handle, reject a missing one,
+/// cast — so they live here once rather than three times over.
+#[cfg(target_os = "macos")]
+fn macos_window<R: tauri::Runtime>(
+    panel: &WebviewWindow<R>,
+) -> Option<&objc2_app_kit::NSWindow> {
+    let handle = panel.ns_window().ok()?;
 
-    let Ok(handle) = panel.ns_window() else {
+    if handle.is_null() {
+        return None;
+    }
+
+    // SAFETY: a non-null `ns_window` is the panel's live `NSWindow`, which Tauri keeps alive for
+    // as long as the window exists — so the borrow cannot outlive it. Callers are on the main
+    // thread: `setup` runs there, and so do synchronous `#[tauri::command]` handlers.
+    Some(unsafe { &*handle.cast::<objc2_app_kit::NSWindow>() })
+}
+
+fn round_macos_window_corners(panel: &WebviewWindow) {
+    let Some(window) = macos_window(panel) else {
         return;
     };
-
-    // SAFETY: `ns_window` hands back the panel's live `NSWindow`, which Tauri keeps alive for as
-    // long as the window exists. The reference is used only within this call, and every method
-    // below runs on the main thread because `setup` does.
-    let window: &NSWindow = unsafe { &*handle.cast::<NSWindow>() };
 
     let Some(content) = window.contentView() else {
         return;
@@ -214,6 +226,38 @@ fn round_macos_window_corners(panel: &WebviewWindow) {
     window.invalidateShadow();
 }
 
+/// Decides which Spaces the panel exists on. This is the whole meaning of the pin.
+///
+/// - **Unpinned** uses `moveToActiveSpace`: an ordinary window living on one Space. Switch away
+///   and it is simply not on the Space you moved to; switch back and it is still open. The flag
+///   matters when reopening from the tray on a different Space — without it macOS drags *you* to
+///   whichever Space the window last sat on instead of bringing the window to you.
+/// - **Pinned** uses `canJoinAllSpaces`: a copy on every Space, so it follows you everywhere.
+///   That ride-along is the point when pinned, and it is the reason the unpinned case must not
+///   use it — a window on every Space visibly slides with the desktop during the transition.
+///
+/// `fullScreenAuxiliary` applies either way, so the panel can sit over a fullscreen app —
+/// adjusting audio during fullscreen video is exactly when a mixer is wanted.
+#[cfg(target_os = "macos")]
+pub fn set_macos_collection_behavior<R: tauri::Runtime>(
+    panel: &WebviewWindow<R>,
+    is_pinned: bool,
+) {
+    use objc2_app_kit::NSWindowCollectionBehavior;
+
+    let Some(window) = macos_window(panel) else {
+        return;
+    };
+
+    let across_spaces = if is_pinned {
+        NSWindowCollectionBehavior::CanJoinAllSpaces
+    } else {
+        NSWindowCollectionBehavior::MoveToActiveSpace
+    };
+
+    window.setCollectionBehavior(across_spaces | NSWindowCollectionBehavior::FullScreenAuxiliary);
+}
+
 /// Points the window's own appearance at light or dark.
 ///
 /// The vibrancy material follows the *window's* appearance, not the app's CSS. Without this a
@@ -223,16 +267,11 @@ fn round_macos_window_corners(panel: &WebviewWindow) {
 pub fn set_macos_appearance<R: tauri::Runtime>(panel: &WebviewWindow<R>, is_dark: bool) {
     use objc2_app_kit::{
         NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
-        NSWindow,
     };
 
-    let Ok(handle) = panel.ns_window() else {
+    let Some(window) = macos_window(panel) else {
         return;
     };
-
-    // SAFETY: `ns_window` hands back the panel's live `NSWindow`, which Tauri keeps alive for as
-    // long as the window exists, and this runs on the main thread via the command handler.
-    let window: &NSWindow = unsafe { &*handle.cast::<NSWindow>() };
 
     let name = if is_dark {
         unsafe { NSAppearanceNameDarkAqua }
@@ -246,7 +285,9 @@ pub fn set_macos_appearance<R: tauri::Runtime>(panel: &WebviewWindow<R>, is_dark
 #[cfg(desktop)]
 fn focus_panel(app: &AppHandle) {
     if let Some(panel) = app.get_webview_window(PANEL_LABEL) {
-        let _ = panel.show();
-        let _ = panel.set_focus();
+        // Through `show_panel`, not `panel.show()`. Showing the window directly skips
+        // positioning, leaves the meter loop stopped so the panel opens with dead meters, and
+        // never resyncs the volume — a second launch would present a stale, inert panel.
+        tray::show_panel(&panel);
     }
 }
