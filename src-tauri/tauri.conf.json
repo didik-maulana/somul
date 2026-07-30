@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "SOMUL",
+  "version": "1.0.0",
+  "identifier": "com.somul.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "createUpdaterArtifacts": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": {
+        "depends": ["libayatana-appindicator3-1"]
+      },
+      "rpm": {
+        "depends": ["libayatana-appindicator3"]
+      }
+    },
+    "macOS": {
+      "minimumSystemVersion": "14.4"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/didik-maulana/somul/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEQwODdEQTRBMERFQkRCRTYKUldUbTIrc05TdHFIME5tcjlDbjFZR0pvbmUrZFBIbE9EVnorUTVvUGsyazNQbkp0ckNhazY5eGIK"
+    }
+  }
+}
