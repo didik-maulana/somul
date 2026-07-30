@@ -95,9 +95,18 @@
 }
 
 :root {
-  /* neutral-100 rather than neutral-50: white cards need something to sit on. Text still clears
-     AA against it — foreground 16.17:1, muted-foreground 5.07:1. */
-  --background: #eff1f5;
+  /* neutral-50. Adjacent steps on the ramp are only ~1.06:1 apart, so no choice of grey here
+     will separate a control from the panel by fill — the hairline and `card-raised` do that.
+     Chasing fill is what produced a run of off-ramp values that all read as muddy. */
+  --background: #f7f8fa;
+
+  /* How much of the panel's own colour survives the translucency.
+     The wallpaper shows through the remainder, and a dark desktop drags the whole surface down
+     with it: at 82% even pure white composites to about #d6d6d6, which is why the light theme
+     read as grey no matter which token was used. Light theme therefore keeps far more of its own
+     colour. Dark theme stays translucent — a dark surface over a dark blur stays dark, so it can
+     afford the glass. */
+  --panel-opacity: 94%;
   --foreground: #12151b;
   --card: #ffffff;
   --card-foreground: #12151b;
@@ -106,8 +115,13 @@
   --primary: #345cb4;
   --primary-foreground: #ffffff;
   --primary-stroke: #345cb4;
-  --secondary: #eff1f5;
+  /* White, not another grey. Since the fill cannot carry separation, a control reads better as
+     a white chip lifted off grey chrome than as a slightly different grey — the macOS control
+     look, and unambiguous rather than muddy. */
+  --secondary: #ffffff;
   --secondary-foreground: #363c4b;
+  /* neutral-100. A track or well, sitting *below* the white surface it is cut into — which is
+     what this token is for, rather than doubling as a chip fill. */
   --muted: #eff1f5;
   --muted-foreground: #5e667b;
   --accent: #eef3fc;
@@ -151,6 +165,7 @@
   --border: #2a2f3c;
   --input: #636b80;
   --ring: #4274d9;
+  --panel-opacity: 82%;
 }
 
 @theme inline {
@@ -233,6 +248,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Light theme separates a card from the panel with elevation, because both are near-white and
+   fill alone cannot carry it — 1.07:1 at best. Dark theme needs none: its card is already darker
+   than the panel, and a shadow there only muddies the edge. */
+@utility card-raised {
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / 0.06),
+    0 1px 3px rgb(16 24 40 / 0.04);
+
+  @variant dark {
+    box-shadow: none;
+  }
+}
+
 @utility shadow-e2 {
   box-shadow: 0 2px 8px rgb(0 0 0 / 0.24);
 }
@@ -250,7 +278,7 @@
      on a white panel at 1.00:1 in light theme — the card vanished into the surface. Keeping the
      two tokens distinct also leaves `popover` free to mean "floats above the panel", which is
      what the device dropdown needs. */
-  background: color-mix(in srgb, var(--background) 82%, transparent);
+  background: color-mix(in srgb, var(--background) var(--panel-opacity), transparent);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   backdrop-filter: blur(24px) saturate(160%);
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);

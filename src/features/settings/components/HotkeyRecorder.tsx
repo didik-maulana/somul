@@ -137,7 +137,7 @@ export const HotkeyRecorder: FC<HotkeyRecorderProps> = ({
         setIsRecording(true);
       }}
       className={cn(
-        "text-numeric min-w-[7.5rem] shrink-0 justify-center",
+        "text-numeric card-raised border-border min-w-[7.5rem] shrink-0 justify-center border",
         isRecording && "ring-ring ring-2",
       )}
     >

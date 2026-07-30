@@ -31,7 +31,7 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
   <section
     data-testid="master-volume-card"
     aria-label="Master output"
-    className="bg-card border-border flex shrink-0 flex-col gap-2 rounded-lg border p-3"
+    className="bg-card border-border card-raised flex shrink-0 flex-col gap-2 rounded-lg border p-3"
   >
     <div className="flex items-center gap-2">
       <span className="text-caption text-muted-foreground min-w-0 flex-1 truncate" title={master.deviceName}>

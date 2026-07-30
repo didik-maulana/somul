@@ -15,7 +15,7 @@ export const PanelFooter: React.FC<PanelFooterProps> = ({ activeSessionCount, ho
 
     {/* One chip rather than one per key. The shortcut is a single thing to press, and separate
         chips read as separate options — the joining `+` is what makes it a combination. */}
-    <kbd className="bg-secondary border-border text-micro rounded-xs border px-1.5 py-0.5">
+    <kbd className="bg-secondary border-border card-raised text-micro rounded-xs border px-1.5 py-0.5">
       {formatAccelerator(hotkey, isApplePlatform())}
     </kbd>
   </footer>

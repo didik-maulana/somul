@@ -153,10 +153,14 @@ fn apply_surface_blur(panel: &WebviewWindow) {
     {
         // `Popover` follows the system appearance; `HudWindow` is a permanently dark HUD
         // material, which is why the light theme came out grey no matter what the palette said.
+        // `Active` rather than the default `FollowsWindowActiveState`. Left to follow, macOS
+        // desaturates the material whenever the panel is not key, so a pinned panel visibly
+        // changes colour the moment you click the app you are adjusting — most obvious in light
+        // theme. The panel's surface should not depend on which window has focus.
         let _ = window_vibrancy::apply_vibrancy(
             panel,
             window_vibrancy::NSVisualEffectMaterial::Popover,
-            None,
+            Some(window_vibrancy::NSVisualEffectState::Active),
             Some(PANEL_RADIUS),
         );
 
