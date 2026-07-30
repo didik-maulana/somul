@@ -31,7 +31,7 @@ use super::{
 
 /// Rendered verbatim by the UI in place of the session list.
 pub const UNSUPPORTED_REASON: &str = "macOS does not expose per-app volume control. \
-SOMUL controls the system output instead; per-app mixing arrives in v1.2 on macOS 14.4+.";
+Somul controls the system output instead; per-app mixing arrives in v1.2 on macOS 14.4+.";
 
 const PER_APP_ROUTING_REASON: &str = "Per-app output routing is not available on macOS in v1.";
 
@@ -283,6 +283,32 @@ fn output_device_ids() -> Result<Vec<AudioDeviceID>, AudioError> {
 /// Most output devices expose no settable master element, so the master element is tried first
 /// and the stereo pair is the fallback. Returning the average keeps the reported value stable
 /// when the two channels are balanced, which they are unless the user split them elsewhere.
+/// Whether the device exposes any writable software volume.
+fn has_software_volume(device: AudioDeviceID) -> bool {
+    let master = address(
+        kAudioDevicePropertyVolumeScalar,
+        kAudioObjectPropertyScopeOutput,
+        kAudioObjectPropertyElementMain,
+    );
+
+    if has_property(device, &master) {
+        return true;
+    }
+
+    let has_channel = STEREO_ELEMENTS.iter().any(|element| {
+        has_property(
+            device,
+            &address(
+                kAudioDevicePropertyVolumeScalar,
+                kAudioObjectPropertyScopeOutput,
+                *element,
+            ),
+        )
+    });
+
+    has_channel || has_virtual_main_volume(device)
+}
+
 fn read_volume(device: AudioDeviceID) -> Result<f32, AudioError> {
     let master = address(
         kAudioDevicePropertyVolumeScalar,
@@ -374,7 +400,7 @@ fn write_volume(device: AudioDeviceID, volume: f32) -> Result<(), AudioError> {
 ///
 /// A device that carries its gain in hardware — an aggregate, most HDMI outputs, many USB DACs —
 /// exposes no `kAudioDevicePropertyVolumeScalar`, but the HAL still publishes a virtual main
-/// volume for it. Reading the raw device property alone is what made SOMUL report 100% on those
+/// volume for it. Reading the raw device property alone is what made Somul report 100% on those
 /// devices instead of the level the user could see in the menu bar.
 fn virtual_main_volume_address() -> AudioObjectPropertyAddress {
     address(
@@ -469,6 +495,7 @@ impl AudioBackend for MacOsAudioBackend {
             device_name: device_name(device),
             volume: read_volume(device)?,
             is_muted,
+            is_volume_controllable: has_software_volume(device),
         })
     }
 

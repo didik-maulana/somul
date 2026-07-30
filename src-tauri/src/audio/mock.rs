@@ -128,6 +128,7 @@ fn seed_state() -> MockState {
             device_name: "Built-in Speakers".to_owned(),
             volume: 0.62,
             is_muted: false,
+            is_volume_controllable: true,
         },
     tick: 0,
     }

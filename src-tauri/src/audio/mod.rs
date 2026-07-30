@@ -126,6 +126,12 @@ pub struct MasterState {
     /// Linear scalar 0.0–1.0. Not a percentage, and not dB.
     pub volume: f32,
     pub is_muted: bool,
+    /// False when the device publishes no software volume at all.
+    ///
+    /// Aggregates, most HDMI outputs, and many USB DACs keep their gain in hardware. `volume`
+    /// then reports unity because nothing is attenuating, but writing to it does nothing. The UI
+    /// needs to tell those apart, or it shows a slider at 100% that silently refuses to move.
+    pub is_volume_controllable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -328,6 +334,7 @@ mod tests {
             device_name: "MacBook Pro Speakers".to_owned(),
             volume: 0.5,
             is_muted: false,
+            is_volume_controllable: true,
         };
 
         let json = serde_json::to_value(&master).expect("MasterState must serialize");

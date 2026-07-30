@@ -1,4 +1,4 @@
-# Contributing to SOMUL
+# Contributing to Somul
 
 Thanks for helping out. This document covers how we write code comments — the part of the
 codebase most likely to rot, and the part a new contributor reads first.
@@ -9,7 +9,7 @@ For build and run instructions, see [README.md](README.md).
 
 ## Code documentation rules
 
-SOMUL controls other applications' audio through three very different operating system APIs.
+Somul controls other applications' audio through three very different operating system APIs.
 Most of the difficult code is difficult because of a platform constraint that is invisible from
 the code itself. Comments exist to carry that missing context.
 

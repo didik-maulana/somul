@@ -25,13 +25,13 @@ fn platform_backend() -> std::sync::Arc<dyn audio::AudioBackend> {
 
 #[cfg(target_os = "windows")]
 compile_error!(
-    "SOMUL has no Windows audio adapter yet. Implement `AudioBackend` over WASAPI in \
+    "Somul has no Windows audio adapter yet. Implement `AudioBackend` over WASAPI in \
 src-tauri/src/audio/windows.rs and select it here."
 );
 
 #[cfg(target_os = "linux")]
 compile_error!(
-    "SOMUL has no Linux audio adapter yet. Implement `AudioBackend` over PipeWire (with a \
+    "Somul has no Linux audio adapter yet. Implement `AudioBackend` over PipeWire (with a \
 PulseAudio fallback) in src-tauri/src/audio/linux/ and select it here."
 );
 
@@ -104,7 +104,7 @@ pub fn run() {
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("failed to start the SOMUL application");
+        .expect("failed to start the Somul application");
 }
 
 /// Builds the panel window hidden, so the WebView boot cost never lands on the tray-ready
@@ -115,7 +115,7 @@ pub fn run() {
 /// leave the user no way to reach the app at all.
 fn build_panel(app: &AppHandle, has_tray: bool) -> tauri::Result<WebviewWindow> {
     let panel = WebviewWindowBuilder::new(app, PANEL_LABEL, WebviewUrl::default())
-        .title("SOMUL")
+        .title("Somul")
         .inner_size(PANEL_WIDTH, PANEL_HEIGHT)
         .visible(!has_tray)
         .decorations(!has_tray)

@@ -39,7 +39,7 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
       </span>
       {deviceSelector}
       <span className="text-numeric text-muted-foreground shrink-0">
-        {formatPercent(master.volume)}
+        {master.isVolumeControllable ? formatPercent(master.volume) : '—'}
       </span>
     </div>
 
@@ -47,10 +47,17 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
       volume={master.volume}
       label={`Master volume for ${master.deviceName}`}
       isMuted={master.isMuted}
+      isDisabled={!master.isVolumeControllable}
       onVolumeChange={onVolumeChange}
       onVolumeCommit={onVolumeCommit}
       hasSmoothMotion={hasSmoothMotion}
       className="[&_[data-slot=slider-range]]:bg-signature"
     />
+
+    {!master.isVolumeControllable && (
+      <p className="text-caption text-muted-foreground">
+        This output controls its volume in hardware. Use the dial on the device.
+      </p>
+    )}
   </section>
 );

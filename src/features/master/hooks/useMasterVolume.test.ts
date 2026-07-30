@@ -10,6 +10,7 @@ const master = (volume: number): MasterState => ({
   deviceName: 'Built-in Speakers',
   volume,
   isMuted: false,
+  isVolumeControllable: true,
 });
 
 let resyncListeners: ((master: MasterState) => void)[] = [];
@@ -21,6 +22,7 @@ vi.mock('@/lib/ipc', () => ({
     deviceName: 'Built-in Speakers',
     volume: 0.2,
     isMuted: false,
+    isVolumeControllable: true,
   }),
   onMasterChanged: (fn: (m: MasterState) => void) => {
     changeListeners.push(fn);

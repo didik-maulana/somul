@@ -36,6 +36,7 @@ const masterState = (volume: number, overrides: Partial<MasterState> = {}): Mast
   deviceName: 'Built-in Speakers',
   volume,
   isMuted: false,
+  isVolumeControllable: true,
   ...overrides,
 });
 

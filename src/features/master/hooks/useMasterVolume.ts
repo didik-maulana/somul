@@ -33,7 +33,7 @@ export const useMasterVolume = (): MasterVolume => {
   }, [setMaster]);
 
   // A resync means the panel just opened and the value may have moved while it was closed.
-  // Easing into it would animate the slider across the gap, which reads as SOMUL changing the
+  // Easing into it would animate the slider across the gap, which reads as Somul changing the
   // volume rather than reporting it, so the flag suppresses the transition for one frame.
   useEffect(() => {
     let unlisten: (() => void) | undefined;

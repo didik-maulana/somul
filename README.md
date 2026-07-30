@@ -1,4 +1,4 @@
-# 🔊 SOMUL (Sound Multiplexer)
+# 🔊 Somul (Sound Multiplexer)
 
 > **Ultra-lightweight, cross-platform per-app volume mixer and audio router for macOS, Windows, and Linux.**
 
@@ -9,9 +9,9 @@
 
 ---
 
-## 💡 About SOMUL
+## 💡 About Somul
 
-**SOMUL** (**So**und **Mul**tiplexer) is a modern, privacy-first, cross-platform desktop application designed to give you total control over your computer's audio.
+**Somul** (**So**und **Mul**tiplexer) is a modern, privacy-first, cross-platform desktop application designed to give you total control over your computer's audio.
 
 Contributing? Start with [CONTRIBUTING.md](CONTRIBUTING.md) — it covers the code documentation
 rules and the checks a pull request has to pass.
@@ -31,7 +31,7 @@ rules and the checks a pull request has to pass.
 
 ## 🖥 Platform Support
 
-Per-app audio control is not equally available on every OS. SOMUL degrades honestly rather than showing controls that do nothing.
+Per-app audio control is not equally available on every OS. Somul degrades honestly rather than showing controls that do nothing.
 
 | Platform | Per-App Volume / Mute / Meter | Notes |
 | :--- | :---: | :--- |

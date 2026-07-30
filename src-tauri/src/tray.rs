@@ -102,7 +102,7 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> bool {
 
     TrayIconBuilder::with_id("somul-tray")
         .icon(icon)
-        .tooltip("SOMUL")
+        .tooltip("Somul")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(handle_menu_event)
@@ -128,8 +128,8 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> bool {
 }
 
 fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
-    let toggle = MenuItem::with_id(app, TOGGLE_ITEM_ID, "Show SOMUL", true, None::<&str>)?;
-    let quit = PredefinedMenuItem::quit(app, Some("Quit SOMUL"))?;
+    let toggle = MenuItem::with_id(app, TOGGLE_ITEM_ID, "Show Somul", true, None::<&str>)?;
+    let quit = PredefinedMenuItem::quit(app, Some("Quit Somul"))?;
     let separator = PredefinedMenuItem::separator(app)?;
 
     Menu::with_items(app, &[&toggle, &separator, &quit])

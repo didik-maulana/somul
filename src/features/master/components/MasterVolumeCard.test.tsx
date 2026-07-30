@@ -10,6 +10,7 @@ const master: MasterState = {
   deviceName: 'Built-in Speakers',
   volume: 0.62,
   isMuted: false,
+  isVolumeControllable: true,
 };
 
 const renderCard = (overrides: Partial<Parameters<typeof MasterVolumeCard>[0]> = {}) => {
@@ -79,6 +80,47 @@ describe('MasterVolumeCard', () => {
 
     expect(onVolumeChange).toHaveBeenCalledWith(0.63);
     expect(onVolumeCommit).toHaveBeenCalledWith(0.63);
+  });
+
+  /**
+   * Aggregates, HDMI, and many USB DACs keep gain in hardware. `volume` reads as unity there
+   * because nothing is attenuating — showing that as a live 100% slider is what made a fresh
+   * install look like Somul had overridden the volume.
+   */
+  describe('a device with no software volume', () => {
+    const hardwareGain = { ...master, volume: 1, isVolumeControllable: false };
+
+    it('disables the slider instead of showing a live 100%', () => {
+      renderCard({ master: hardwareGain });
+
+      expect(screen.getByRole('slider')).toHaveAttribute('data-disabled');
+    });
+
+    it('shows no percentage, since there is no level to report', () => {
+      renderCard({ master: hardwareGain });
+
+      expect(screen.queryByText('100%')).not.toBeInTheDocument();
+      expect(screen.getByText('—')).toBeInTheDocument();
+    });
+
+    it('explains where the volume actually lives', () => {
+      renderCard({ master: hardwareGain });
+
+      expect(screen.getByText(/controls its volume in hardware/)).toBeInTheDocument();
+    });
+
+    it('still names the device', () => {
+      renderCard({ master: hardwareGain });
+
+      expect(screen.getByText('Built-in Speakers')).toBeInTheDocument();
+    });
+  });
+
+  it('keeps the slider live on a normal device', () => {
+    renderCard();
+
+    expect(screen.getByRole('slider')).not.toHaveAttribute('data-disabled');
+    expect(screen.getByText('62%')).toBeInTheDocument();
   });
 
   it('hosts the device selector when one is supplied', () => {

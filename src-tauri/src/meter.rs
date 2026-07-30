@@ -25,7 +25,7 @@ pub const MASTER_CHANGED_EVENT: &str = "audio://master-changed";
 /// Distinct from [`MASTER_CHANGED_EVENT`] because the UI must treat it differently: a change is
 /// eased so it reads as motion, a resync is applied instantly. Easing a resync would animate the
 /// slider from whatever it showed when the panel closed up to the real level, which looks like
-/// SOMUL is changing the volume rather than reporting it.
+/// Somul is changing the volume rather than reporting it.
 pub const MASTER_RESYNC_EVENT: &str = "audio://master-resync";
 
 /// Master state is polled every Nth meter tick rather than every tick. The OS volume can be
@@ -580,6 +580,7 @@ mod tests {
             device_name: "Built-in Speakers".to_owned(),
             volume: 0.5,
             is_muted: false,
+            is_volume_controllable: true,
         };
         let noisy = MasterState {
             volume: 0.5 + VOLUME_EPSILON / 2.0,

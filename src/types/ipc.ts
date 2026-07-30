@@ -45,6 +45,13 @@ export interface MasterState {
   /** Linear scalar 0.0–1.0. Not a percentage, and not dB. */
   volume: number;
   isMuted: boolean;
+  /**
+   * False when the device publishes no software volume at all — common for aggregates, HDMI
+   * outputs, and USB DACs that keep gain in hardware. `volume` reads as unity there because
+   * nothing is attenuating, so the UI must use this flag rather than the value to decide whether
+   * the slider can do anything.
+   */
+  isVolumeControllable: boolean;
 }
 
 export interface SessionPeak {

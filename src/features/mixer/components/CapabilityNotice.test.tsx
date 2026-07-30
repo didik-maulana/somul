@@ -50,7 +50,7 @@ describe('CapabilityNotice', () => {
   /** The reason belongs to the backend and is rendered verbatim. */
   it('renders unsupportedReason verbatim', () => {
     const reason =
-      'macOS does not expose per-app volume control. SOMUL controls the system output instead.';
+      'macOS does not expose per-app volume control. Somul controls the system output instead.';
 
     render(<CapabilityNotice capabilities={masterOnly(reason)} />);
 

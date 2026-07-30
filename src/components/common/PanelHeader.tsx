@@ -2,6 +2,7 @@ import type React from 'react';
 import { Pin, PinOff, Settings } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+import { SomulMark } from '@/components/common/SomulMark';
 
 export interface PanelHeaderProps {
   isPinned: boolean;
@@ -25,13 +26,9 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
     data-tauri-drag-region
     className="border-border flex h-12 shrink-0 items-center gap-3 border-b px-3"
   >
-    <span
-      aria-hidden="true"
-      className="bg-signature size-5 shrink-0 rounded-md"
-      data-tauri-drag-region
-    />
+    <SomulMark size={20} className="shrink-0" />
     <span className="text-title flex-1" data-tauri-drag-region>
-      SOMUL
+      Somul
     </span>
 
     <Button
