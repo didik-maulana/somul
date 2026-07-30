@@ -82,6 +82,13 @@
   --radius-xl: 16px;
   --radius-2xl: 20px;
 
+  /* How long the master slider takes to ease between two samples of the system volume.
+     This MUST match the backend's master poll interval (MASTER_POLL_EVERY_TICKS in meter.rs,
+     currently 6 ticks of a 30 Hz loop = 200 ms). Equal values mean each sample lands exactly as
+     the previous one finishes animating, so periodic samples read as continuous motion. Shorter
+     and the thumb stalls between samples; longer and it lags behind the real volume. */
+  --master-sync-duration: 200ms;
+
   --ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --ease-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);

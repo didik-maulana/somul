@@ -141,6 +141,46 @@ describe('VolumeSlider', () => {
     );
   });
 
+  /**
+   * The system volume reaches us as periodic samples, not a continuous stream. Without easing
+   * between them the thumb visibly steps.
+   */
+  it('eases the thumb when the value is arriving from outside', () => {
+    const { container } = render(
+      <VolumeSlider volume={0.5} label="Volume for Spotify" hasSmoothMotion onVolumeChange={vi.fn()} />,
+    );
+
+    const root = container.firstElementChild;
+
+    expect(root).toHaveClass(
+      '[&_[data-slot=slider-range]]:transition-[left,right]',
+      '[&_span:has(>[data-slot=slider-thumb])]:transition-[left]',
+    );
+  });
+
+  /** Any transition during a drag lags the pointer, which reads as the control fighting back. */
+  it('never eases while the pointer is driving the slider', () => {
+    const { container } = render(
+      <VolumeSlider volume={0.5} label="Volume for Spotify" onVolumeChange={vi.fn()} />,
+    );
+
+    const className = container.firstElementChild?.className ?? '';
+
+    expect(className).not.toContain('slider-range]]:transition-[left,right]');
+    expect(className).not.toContain('slider-thumb])]:transition-[left]');
+  });
+
+  it('drops the easing under prefers-reduced-motion', () => {
+    const { container } = render(
+      <VolumeSlider volume={0.5} label="Volume for Spotify" hasSmoothMotion onVolumeChange={vi.fn()} />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      'motion-reduce:[&_[data-slot=slider-range]]:transition-none',
+      'motion-reduce:[&_span:has(>[data-slot=slider-thumb])]:transition-none',
+    );
+  });
+
   it('is inert when disabled', async () => {
     const user = userEvent.setup();
     const { onVolumeChange, slider } = renderSlider({ isDisabled: true });

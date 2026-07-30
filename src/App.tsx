@@ -26,6 +26,7 @@ export const App: FC = () => {
   const devices = useOutputDevices();
 
   const draggingSessionIds = useAudioStore((state) => state.draggingSessionIds);
+  const isDraggingMaster = useAudioStore((state) => state.isDraggingMaster);
   const capabilities = useAudioStore((state) => state.capabilities);
   const hotkey = useSettingsStore((state) => state.hotkey);
   const isPanelPinned = useSettingsStore((state) => state.isPanelPinned);
@@ -97,6 +98,7 @@ export const App: FC = () => {
           master={master.master}
           onVolumeChange={handleMasterVolumeChange}
           onVolumeCommit={masterCommit.flush}
+          hasSmoothMotion={!isDraggingMaster && !master.isResyncing}
           deviceSelector={
             <DeviceSelector
               devices={devices.devices}

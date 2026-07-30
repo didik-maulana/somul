@@ -168,6 +168,12 @@ pub fn show_panel<R: Runtime>(panel: &WebviewWindow<R>) {
         state.record_shown();
     }
 
+    // Before the window appears, not after. The system volume may have moved while the panel was
+    // closed, and the WebView still holds the value from last time. Emitting first lets it repaint
+    // while hidden, so the panel opens already showing the truth instead of correcting itself in
+    // front of the user.
+    resync_master(app);
+
     // The constrained variant clamps to screen bounds, which is what keeps the panel
     // on-screen with a multi-monitor layout or a tray near a display edge.
     let _ = panel.move_window_constrained(Position::TrayBottomCenter);
@@ -181,6 +187,22 @@ pub fn hide_panel<R: Runtime>(panel: &WebviewWindow<R>) {
     let _ = panel.hide();
 
     set_panel_visibility(panel.app_handle(), false);
+}
+
+/// Pushes the current system output state to the WebView.
+///
+/// The meter loop also emits a resync on its first tick after opening, which covers paths that do
+/// not go through [`show_panel`]. This one exists to beat the window to the screen.
+fn resync_master<R: Runtime>(app: &AppHandle<R>) {
+    use tauri::Emitter;
+
+    let Some(state) = app.try_state::<AudioState>() else {
+        return;
+    };
+
+    if let Ok(master) = state.backend().master() {
+        let _ = app.emit(crate::meter::MASTER_RESYNC_EVENT, &master);
+    }
 }
 
 /// Hiding must stop the meter loop. Going through the shared state rather than the IPC

@@ -15,6 +15,14 @@ export interface VolumeSliderProps {
   onVolumeChange: (volume: number) => void;
   /** Radix fires this on pointer-up and key-up — the guaranteed flush point. */
   onVolumeCommit?: (volume: number) => void;
+  /**
+   * Eases the thumb between values instead of snapping.
+   *
+   * Turn this on only while the value is arriving from outside — the OS volume being changed in
+   * the menu bar reaches us as periodic samples, and without easing the thumb visibly steps. It
+   * must be **off** during a drag, where any transition lags the pointer.
+   */
+  hasSmoothMotion?: boolean;
   className?: string;
 }
 
@@ -33,6 +41,7 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
   isDisabled = false,
   onVolumeChange,
   onVolumeCommit,
+  hasSmoothMotion = false,
   className,
 }) => {
   const percent = Math.round(clampScalar(volume) * 100);
@@ -69,6 +78,19 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
       }}
       className={cn(
         '[&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:rounded-full',
+        // Radix positions the range and the thumb with `left`/`right` percentages, so those are
+        // the properties that have to ease. Linear over exactly one sample interval means each
+        // sample arrives as the previous one finishes, and the steps read as continuous motion.
+        hasSmoothMotion && [
+          '[&_[data-slot=slider-range]]:transition-[left,right]',
+          '[&_[data-slot=slider-range]]:duration-[var(--master-sync-duration)]',
+          '[&_[data-slot=slider-range]]:ease-linear',
+          '[&_span:has(>[data-slot=slider-thumb])]:transition-[left]',
+          '[&_span:has(>[data-slot=slider-thumb])]:duration-[var(--master-sync-duration)]',
+          '[&_span:has(>[data-slot=slider-thumb])]:ease-linear',
+          'motion-reduce:[&_[data-slot=slider-range]]:transition-none',
+          'motion-reduce:[&_span:has(>[data-slot=slider-thumb])]:transition-none',
+        ],
         isMuted
           ? '[&_[data-slot=slider-range]]:bg-muted'
           : '[&_[data-slot=slider-range]]:bg-primary',

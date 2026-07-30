@@ -82,7 +82,7 @@ pub fn run() {
             app.manage(meter::MeterLoop::start(
                 backend,
                 gate,
-                std::sync::Arc::new(meter::EventPeakEmitter::new(app.handle().clone())),
+                std::sync::Arc::new(meter::TauriPanelEmitter::new(app.handle().clone())),
             ));
 
             // Ordering matters: the tray is registered first and is interactive from that point.

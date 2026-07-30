@@ -156,6 +156,7 @@ export const AUDIO_EVENT = {
   peaks: 'audio://peaks',
   sessionsChanged: 'audio://sessions-changed',
   masterChanged: 'audio://master-changed',
+  masterResync: 'audio://master-resync',
   deviceChanged: 'audio://device-changed',
   backendError: 'audio://backend-error',
 } as const;
@@ -175,6 +176,17 @@ export const onSessionsChanged = (
 
 export const onMasterChanged = (onEvent: (master: MasterState) => void): Promise<UnlistenFn> =>
   listen<MasterState>(AUDIO_EVENT.masterChanged, ({ payload }) => {
+    onEvent(payload);
+  });
+
+/**
+ * Fires once when the panel opens, carrying the current system state.
+ *
+ * Separate from {@link onMasterChanged} because the UI applies it instantly rather than easing
+ * into it — see the `hasSmoothMotion` prop on the slider.
+ */
+export const onMasterResync = (onEvent: (master: MasterState) => void): Promise<UnlistenFn> =>
+  listen<MasterState>(AUDIO_EVENT.masterResync, ({ payload }) => {
     onEvent(payload);
   });
 

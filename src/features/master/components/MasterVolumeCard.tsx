@@ -8,6 +8,8 @@ export interface MasterVolumeCardProps {
   master: MasterState;
   onVolumeChange: (volume: number) => void;
   onVolumeCommit: (volume: number) => void;
+  /** False while the user is dragging — see {@link VolumeSlider.hasSmoothMotion}. */
+  hasSmoothMotion?: boolean;
   /** Rendered to the right of the device name — the output device picker. */
   deviceSelector?: React.ReactNode;
 }
@@ -23,6 +25,7 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
   master,
   onVolumeChange,
   onVolumeCommit,
+  hasSmoothMotion = false,
   deviceSelector,
 }) => (
   <section
@@ -46,6 +49,7 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
       isMuted={master.isMuted}
       onVolumeChange={onVolumeChange}
       onVolumeCommit={onVolumeCommit}
+      hasSmoothMotion={hasSmoothMotion}
       className="[&_[data-slot=slider-range]]:bg-signature"
     />
   </section>

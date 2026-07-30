@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { mergeSessions, useAudioStore } from '@/stores/audioStore';
+import { mergeMaster, mergeSessions, useAudioStore } from '@/stores/audioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import type { AudioSession, DeviceId, SessionId } from '@/types/ipc';
+import type { AudioSession, DeviceId, MasterState, SessionId } from '@/types/ipc';
 
 const spotify = 'mock:session:spotify' as SessionId;
 const chrome = 'mock:session:chrome' as SessionId;
@@ -27,6 +27,88 @@ beforeEach(() => {
     master: null,
     capabilities: null,
     draggingSessionIds: new Set<SessionId>(),
+    isDraggingMaster: false,
+  });
+});
+
+const masterState = (volume: number, overrides: Partial<MasterState> = {}): MasterState => ({
+  deviceId: 'mock:speakers' as DeviceId,
+  deviceName: 'Built-in Speakers',
+  volume,
+  isMuted: false,
+  ...overrides,
+});
+
+describe('master reconciliation', () => {
+  it('accepts an external volume change while the user is not dragging', () => {
+    const { setMaster } = useAudioStore.getState();
+
+    setMaster(masterState(0.62));
+    setMaster(masterState(0.5));
+
+    expect(useAudioStore.getState().master?.volume).toBe(0.5);
+  });
+
+  /** The backend polls the system output, so its event carries the pre-drag value. */
+  it('does not let a polled event overwrite the volume being dragged', () => {
+    const { setMaster, startDraggingMaster, setMasterVolume } = useAudioStore.getState();
+
+    setMaster(masterState(0.62));
+    startDraggingMaster();
+    setMasterVolume(0.9);
+    setMaster(masterState(0.62));
+
+    expect(useAudioStore.getState().master?.volume).toBe(0.9);
+  });
+
+  it('accepts system volume again once the drag ends', () => {
+    const { setMaster, startDraggingMaster, stopDraggingMaster, setMasterVolume } =
+      useAudioStore.getState();
+
+    setMaster(masterState(0.62));
+    startDraggingMaster();
+    setMasterVolume(0.9);
+    stopDraggingMaster();
+    setMaster(masterState(0.3));
+
+    expect(useAudioStore.getState().master?.volume).toBe(0.3);
+  });
+
+  /** Only the value under the pointer is protected — mute and device still apply. */
+  it('still applies mute and device changes mid-drag', () => {
+    const { setMaster, startDraggingMaster, setMasterVolume } = useAudioStore.getState();
+
+    setMaster(masterState(0.62));
+    startDraggingMaster();
+    setMasterVolume(0.9);
+    setMaster(masterState(0.62, { isMuted: true, deviceName: 'USB Headphones' }));
+
+    const master = useAudioStore.getState().master;
+
+    expect(master?.volume).toBe(0.9);
+    expect(master?.isMuted).toBe(true);
+    expect(master?.deviceName).toBe('USB Headphones');
+  });
+
+  it('takes the first master state even if a drag flag is somehow set', () => {
+    const { startDraggingMaster, setMaster } = useAudioStore.getState();
+
+    startDraggingMaster();
+    setMaster(masterState(0.4));
+
+    expect(useAudioStore.getState().master?.volume).toBe(0.4);
+  });
+});
+
+describe('mergeMaster', () => {
+  it('returns the incoming state untouched when not dragging', () => {
+    const incoming = masterState(0.3);
+
+    expect(mergeMaster(incoming, masterState(0.9), false)).toBe(incoming);
+  });
+
+  it('holds the previous volume while dragging', () => {
+    expect(mergeMaster(masterState(0.3), masterState(0.9), true).volume).toBe(0.9);
   });
 });
 

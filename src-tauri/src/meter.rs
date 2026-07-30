@@ -9,13 +9,40 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::audio::{AudioBackend, SessionPeak};
+use crate::audio::{AudioBackend, MasterState, SessionPeak};
 
 pub const METER_HZ: u32 = 30;
 pub const TICK: Duration = Duration::from_nanos(1_000_000_000 / METER_HZ as u64);
 
 /// One batch per tick covering every session — never one emit per session.
 pub const PEAKS_EVENT: &str = "audio://peaks";
+
+/// Emitted when the system output volume, mute, or device changes while the panel is open.
+pub const MASTER_CHANGED_EVENT: &str = "audio://master-changed";
+
+/// Emitted once when the panel opens, carrying the current system state.
+///
+/// Distinct from [`MASTER_CHANGED_EVENT`] because the UI must treat it differently: a change is
+/// eased so it reads as motion, a resync is applied instantly. Easing a resync would animate the
+/// slider from whatever it showed when the panel closed up to the real level, which looks like
+/// SOMUL is changing the volume rather than reporting it.
+pub const MASTER_RESYNC_EVENT: &str = "audio://master-resync";
+
+/// Master state is polled every Nth meter tick rather than every tick. The OS volume can be
+/// changed from outside the app — menu bar, keyboard keys, System Settings — and there is no
+/// cheaper way to notice than asking. At 30 Hz this works out to roughly 5 Hz, fast enough that
+/// dragging the system slider looks live and slow enough to stay off the hot path.
+const MASTER_POLL_EVERY_TICKS: u32 = 6;
+
+/// Volume arrives as a float from the OS, so an exact comparison would emit on rounding noise.
+const VOLUME_EPSILON: f32 = 0.001;
+
+fn has_master_changed(previous: &MasterState, current: &MasterState) -> bool {
+    (previous.volume - current.volume).abs() > VOLUME_EPSILON
+        || previous.is_muted != current.is_muted
+        || previous.device_id != current.device_id
+        || previous.device_name != current.device_name
+}
 
 /// Shared visibility flag. `set_panel_visibility` writes it; the loop blocks on it.
 #[derive(Default)]
@@ -76,10 +103,12 @@ impl MeterGate {
     }
 }
 
-/// Where a tick's batch goes. Abstracted so the loop is testable without a Tauri runtime — and
+/// Where the loop's events go. Abstracted so the loop is testable without a Tauri runtime — and
 /// so a test can count emits and assert one batch per tick.
-pub trait PeakEmitter: Send + Sync + 'static {
+pub trait PanelEventEmitter: Send + Sync + 'static {
     fn emit_peaks(&self, peaks: &[SessionPeak]);
+    fn emit_master_changed(&self, master: &MasterState);
+    fn emit_master_resync(&self, master: &MasterState);
 }
 
 pub struct MeterLoop {
@@ -92,7 +121,7 @@ impl MeterLoop {
     pub fn start(
         backend: Arc<dyn AudioBackend>,
         gate: Arc<MeterGate>,
-        emitter: Arc<dyn PeakEmitter>,
+        emitter: Arc<dyn PanelEventEmitter>,
     ) -> Self {
         let is_running = Arc::new(AtomicBool::new(true));
         let worker = thread::spawn({
@@ -100,15 +129,44 @@ impl MeterLoop {
             let gate = Arc::clone(&gate);
 
             move || {
+                let mut last_master: Option<MasterState> = None;
+                let mut tick: u32 = 0;
+
                 while is_running.load(Ordering::Acquire) {
-                    if !gate.wait_until_visible(&is_running) {
-                        break;
+                    if !gate.is_visible() {
+                        // The panel is closed. Forget the last master state so that reopening
+                        // always re-emits: the user may have changed the system volume while the
+                        // panel was hidden, and the slider must not show a stale value.
+                        last_master = None;
+                        tick = 0;
+
+                        if !gate.wait_until_visible(&is_running) {
+                            break;
+                        }
                     }
 
                     if let Ok(peaks) = backend.read_peaks() {
                         emitter.emit_peaks(&peaks);
                     }
 
+                    if tick % MASTER_POLL_EVERY_TICKS == 0 {
+                        if let Ok(master) = backend.master() {
+                            let is_first_read_since_opening = last_master.is_none();
+                            let has_changed = last_master
+                                .as_ref()
+                                .is_some_and(|previous| has_master_changed(previous, &master));
+
+                            if is_first_read_since_opening {
+                                emitter.emit_master_resync(&master);
+                                last_master = Some(master);
+                            } else if has_changed {
+                                emitter.emit_master_changed(&master);
+                                last_master = Some(master);
+                            }
+                        }
+                    }
+
+                    tick = tick.wrapping_add(1);
                     gate.wait_for_next_tick(&is_running);
                 }
             }
@@ -139,21 +197,33 @@ impl Drop for MeterLoop {
 
 /// Emits over the Tauri event channel: one `audio://peaks` message per tick carrying the whole
 /// batch — twelve sessions cost twelve floats in one message, not twelve messages.
-pub struct EventPeakEmitter<R: tauri::Runtime> {
+pub struct TauriPanelEmitter<R: tauri::Runtime> {
     app: tauri::AppHandle<R>,
 }
 
-impl<R: tauri::Runtime> EventPeakEmitter<R> {
+impl<R: tauri::Runtime> TauriPanelEmitter<R> {
     pub fn new(app: tauri::AppHandle<R>) -> Self {
         Self { app }
     }
 }
 
-impl<R: tauri::Runtime> PeakEmitter for EventPeakEmitter<R> {
+impl<R: tauri::Runtime> PanelEventEmitter for TauriPanelEmitter<R> {
     fn emit_peaks(&self, peaks: &[SessionPeak]) {
         use tauri::Emitter;
 
         let _ = self.app.emit(PEAKS_EVENT, peaks);
+    }
+
+    fn emit_master_changed(&self, master: &MasterState) {
+        use tauri::Emitter;
+
+        let _ = self.app.emit(MASTER_CHANGED_EVENT, master);
+    }
+
+    fn emit_master_resync(&self, master: &MasterState) {
+        use tauri::Emitter;
+
+        let _ = self.app.emit(MASTER_RESYNC_EVENT, master);
     }
 }
 
@@ -240,6 +310,8 @@ mod tests {
     #[derive(Default)]
     struct RecordingEmitter {
         batches: Mutex<Vec<Vec<SessionPeak>>>,
+        masters: Mutex<Vec<MasterState>>,
+        resyncs: Mutex<Vec<MasterState>>,
     }
 
     impl RecordingEmitter {
@@ -249,14 +321,42 @@ mod tests {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
         }
+
+        fn masters(&self) -> Vec<MasterState> {
+            self.masters
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+
+        fn resyncs(&self) -> Vec<MasterState> {
+            self.resyncs
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
     }
 
-    impl PeakEmitter for RecordingEmitter {
+    impl PanelEventEmitter for RecordingEmitter {
         fn emit_peaks(&self, peaks: &[SessionPeak]) {
             self.batches
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(peaks.to_vec());
+        }
+
+        fn emit_master_changed(&self, master: &MasterState) {
+            self.masters
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(master.clone());
+        }
+
+        fn emit_master_resync(&self, master: &MasterState) {
+            self.resyncs
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(master.clone());
         }
     }
 
@@ -274,7 +374,7 @@ mod tests {
         let meter = MeterLoop::start(
             Arc::clone(&backend) as Arc<dyn AudioBackend>,
             Arc::clone(&gate),
-            Arc::clone(&emitter) as Arc<dyn PeakEmitter>,
+            Arc::clone(&emitter) as Arc<dyn PanelEventEmitter>,
         );
 
         Harness {
@@ -391,6 +491,114 @@ mod tests {
             (5..=40).contains(&reads),
             "expected roughly 15 ticks in 500 ms, got {reads}"
         );
+    }
+
+    /// The system volume can be changed from outside the app — menu bar, keyboard keys, System
+    /// Settings. Nothing pushes that to us, so the loop has to notice and tell the UI.
+    #[test]
+    fn emits_master_state_when_it_changes_outside_the_app() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+        thread::sleep(SETTLE);
+
+        let before = harness.emitter.masters().len();
+
+        harness
+            .backend
+            .set_master_volume(0.13)
+            .expect("an external volume change");
+        thread::sleep(SETTLE);
+
+        let masters = harness.emitter.masters();
+
+        assert!(
+            masters.len() > before,
+            "changing the system volume produced no master-changed emit"
+        );
+        assert!(
+            (masters.last().expect("an emit").volume - 0.13).abs() < 0.01,
+            "the emitted volume did not match the new system volume"
+        );
+    }
+
+    /// Without this, opening the panel after changing the volume elsewhere shows a stale slider.
+    #[test]
+    fn re_emits_master_state_when_the_panel_reopens() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+        thread::sleep(SETTLE);
+        harness.gate.set_visible(false);
+        thread::sleep(Duration::from_millis(100));
+
+        let before = harness.emitter.resyncs().len();
+
+        harness.gate.set_visible(true);
+        thread::sleep(SETTLE);
+
+        assert!(
+            harness.emitter.resyncs().len() > before,
+            "reopening the panel did not resync master state"
+        );
+    }
+
+    /// Polling must not turn into a firehose: a steady system volume emits once, on open.
+    #[test]
+    fn stays_quiet_while_master_state_is_unchanged() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+        thread::sleep(SETTLE);
+        harness.gate.set_visible(false);
+
+        assert_eq!(
+            harness.emitter.resyncs().len(),
+            1,
+            "opening the panel should resync exactly once"
+        );
+        assert!(
+            harness.emitter.masters().is_empty(),
+            "an unchanging master state must not emit a change event"
+        );
+    }
+
+    #[test]
+    fn emits_no_master_state_while_the_panel_is_hidden() {
+        let harness = start();
+
+        thread::sleep(SETTLE);
+
+        assert!(harness.emitter.masters().is_empty());
+        assert!(harness.emitter.resyncs().is_empty());
+    }
+
+    #[test]
+    fn ignores_float_noise_below_the_volume_epsilon() {
+        let steady = MasterState {
+            device_id: crate::audio::DeviceId::new("mock:speakers"),
+            device_name: "Built-in Speakers".to_owned(),
+            volume: 0.5,
+            is_muted: false,
+        };
+        let noisy = MasterState {
+            volume: 0.5 + VOLUME_EPSILON / 2.0,
+            ..steady.clone()
+        };
+        let real = MasterState {
+            volume: 0.6,
+            ..steady.clone()
+        };
+
+        assert!(!has_master_changed(&steady, &noisy));
+        assert!(has_master_changed(&steady, &real));
+        assert!(has_master_changed(
+            &steady,
+            &MasterState {
+                is_muted: true,
+                ..steady.clone()
+            }
+        ));
     }
 
     #[test]

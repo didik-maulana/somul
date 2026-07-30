@@ -21,12 +21,17 @@ export interface AudioStoreState {
   capabilities: PlatformCapabilities | null;
   /** Sessions currently under the pointer. Incoming events must not overwrite their volume. */
   draggingSessionIds: ReadonlySet<SessionId>;
+  /** True while the master slider is under the pointer. Same rule as `draggingSessionIds`. */
+  isDraggingMaster: boolean;
 
   replaceSessions: (sessions: AudioSession[]) => void;
   setSessionVolume: (sessionId: SessionId, volume: number) => void;
   setSessionMuted: (sessionId: SessionId, isMuted: boolean) => void;
   setDevices: (devices: AudioDevice[]) => void;
   setMaster: (master: MasterState) => void;
+  setMasterVolume: (volume: number) => void;
+  startDraggingMaster: () => void;
+  stopDraggingMaster: () => void;
   setCapabilities: (capabilities: PlatformCapabilities) => void;
   startDragging: (sessionId: SessionId) => void;
   stopDragging: (sessionId: SessionId) => void;
@@ -63,6 +68,26 @@ export const mergeSessions = (
   });
 };
 
+/**
+ * The master counterpart to {@link mergeSessions}.
+ *
+ * The backend polls the system output while the panel is open, so an external volume change
+ * arrives as an event. During a drag that event carries the *previous* value and would yank the
+ * thumb backwards under the pointer, so volume is held until the drag ends. Mute and device still
+ * apply — only the value the user is actively holding is protected.
+ */
+export const mergeMaster = (
+  incoming: MasterState,
+  previous: MasterState | null,
+  isDraggingMaster: boolean,
+): MasterState => {
+  if (!isDraggingMaster || previous === null) {
+    return incoming;
+  }
+
+  return { ...incoming, volume: previous.volume };
+};
+
 const withSession = (
   sessions: AudioSession[],
   sessionId: SessionId,
@@ -76,6 +101,7 @@ export const useAudioStore = create<AudioStoreState>()((set) => ({
   master: null,
   capabilities: null,
   draggingSessionIds: new Set<SessionId>(),
+  isDraggingMaster: false,
 
   replaceSessions: (sessions) => {
     set((state) => ({
@@ -100,7 +126,24 @@ export const useAudioStore = create<AudioStoreState>()((set) => ({
   },
 
   setMaster: (master) => {
-    set({ master });
+    set((state) => ({
+      master: mergeMaster(master, state.master, state.isDraggingMaster),
+    }));
+  },
+
+  /** Optimistic write from the user's own drag — bypasses the merge rule by design. */
+  setMasterVolume: (volume) => {
+    set((state) => ({
+      master: state.master ? { ...state.master, volume } : null,
+    }));
+  },
+
+  startDraggingMaster: () => {
+    set({ isDraggingMaster: true });
+  },
+
+  stopDraggingMaster: () => {
+    set({ isDraggingMaster: false });
   },
 
   setCapabilities: (capabilities) => {
