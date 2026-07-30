@@ -12,12 +12,12 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder}
 
 use crate::tray::PanelState;
 
-/// Selects the adapter for the build target (§4).
+/// Selects the platform audio adapter at compile time.
 ///
-/// An unimplemented target fails the build by name rather than falling back to
+/// A target with no adapter yet fails the build by name rather than falling back to
 /// [`MockAudioBackend`](audio::mock::MockAudioBackend). A mock standing in for a real backend
-/// inside a shipped binary would present working controls that move nothing — the same dishonesty
-/// §2.4 forbids at the trait level, one layer up.
+/// inside a shipped binary would present working controls that move nothing, which is the same
+/// dishonesty the trait forbids of an unsupported operation — one layer up.
 #[cfg(target_os = "macos")]
 fn platform_backend() -> std::sync::Arc<dyn audio::AudioBackend> {
     std::sync::Arc::new(audio::macos::MacOsAudioBackend::new())
@@ -25,12 +25,14 @@ fn platform_backend() -> std::sync::Arc<dyn audio::AudioBackend> {
 
 #[cfg(target_os = "windows")]
 compile_error!(
-    "the Windows WASAPI adapter is not implemented — see GOAL.md T-022 and DECISIONS.md D-002"
+    "SOMUL has no Windows audio adapter yet. Implement `AudioBackend` over WASAPI in \
+src-tauri/src/audio/windows.rs and select it here."
 );
 
 #[cfg(target_os = "linux")]
 compile_error!(
-    "the Linux PipeWire/PulseAudio adapters are not implemented — see GOAL.md T-023, T-024 and DECISIONS.md D-002"
+    "SOMUL has no Linux audio adapter yet. Implement `AudioBackend` over PipeWire (with a \
+PulseAudio fallback) in src-tauri/src/audio/linux/ and select it here."
 );
 
 pub const PANEL_LABEL: &str = "main";
@@ -61,10 +63,10 @@ pub fn run() {
         .manage(PanelState::default())
         .manage(shortcut::HotkeyState::default())
         .setup(|app| {
-            // §8.1/§8.2: a tray-first panel is an accessory, not a Dock application. As a
-            // Regular app the panel cannot take key focus over whatever is frontmost, so
-            // clicking the tray from inside another app opened nothing. Accessory is also the
-            // macOS counterpart to `skipTaskbar`, which is Windows/Linux only.
+            // A tray-first panel is an accessory, not a Dock application. As a Regular app it
+            // cannot take key focus over whatever is frontmost, so clicking the tray from inside
+            // another app opens nothing at all. Accessory is also the macOS counterpart to
+            // `skipTaskbar`, which is Windows and Linux only.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
@@ -83,7 +85,7 @@ pub fn run() {
                 std::sync::Arc::new(meter::EventPeakEmitter::new(app.handle().clone())),
             ));
 
-            // §8.1 ordering: the tray is registered first and is interactive from that point.
+            // Ordering matters: the tray is registered first and is interactive from that point.
             // The WebView then boots behind a hidden window, so its cost never lands on the
             // 300 ms tray-ready measurement.
             let has_tray = tray::register(app.handle());
@@ -94,7 +96,7 @@ pub fn run() {
                 move |event| tray::handle_window_event(&panel, event)
             });
 
-            // §8.3: a hotkey another app already owns is a degraded state, not a startup
+            // A hotkey another app already owns is a degraded state, not a startup
             // failure — the status is kept so the settings panel can warn about it.
             #[cfg(desktop)]
             shortcut::register(app.handle(), shortcut::DEFAULT_HOTKEY);
@@ -105,12 +107,12 @@ pub fn run() {
         .expect("failed to start the SOMUL application");
 }
 
-/// ARCHITECTURE.md §8.1: the window is built hidden so the WebView boot cost never lands
-/// on the 300 ms tray-ready measurement.
+/// Builds the panel window hidden, so the WebView boot cost never lands on the tray-ready
+/// measurement.
 ///
-/// Without a tray (§8.2 — a Linux desktop missing `libayatana-appindicator3`) the panel becomes
-/// an ordinary decorated window instead. Keeping it frameless and hidden there would leave the
-/// user no way to reach the app at all.
+/// Without a tray — a Linux desktop missing `libayatana-appindicator3`, for instance — the panel
+/// becomes an ordinary decorated window instead. Keeping it frameless and hidden there would
+/// leave the user no way to reach the app at all.
 fn build_panel(app: &AppHandle, has_tray: bool) -> tauri::Result<WebviewWindow> {
     let panel = WebviewWindowBuilder::new(app, PANEL_LABEL, WebviewUrl::default())
         .title("SOMUL")
@@ -128,9 +130,10 @@ fn build_panel(app: &AppHandle, has_tray: bool) -> tauri::Result<WebviewWindow> 
     Ok(panel)
 }
 
-/// DESIGN.md §6: wallpaper blur is an OS compositor feature — `backdrop-filter` only blurs
-/// content inside the WebView. Platforms without a vibrancy call keep the opaque
-/// `bg-popover` fallback, which must stay legible on its own.
+/// Wallpaper blur is an OS compositor feature: CSS `backdrop-filter` only blurs content inside
+/// the WebView and can never reach the desktop behind the window. Platforms without a vibrancy
+/// call keep the opaque `bg-popover` fallback, which must stay legible on its own — translucency
+/// is never load-bearing for contrast.
 fn apply_surface_blur(panel: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {

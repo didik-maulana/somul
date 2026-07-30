@@ -1,14 +1,16 @@
 /**
  * Field-for-field mirror of the Rust types in `src-tauri/src/audio/`.
- * ARCHITECTURE.md §6 — Rust is the source of truth; this file follows it.
+ *
+ * Rust is the source of truth. When a payload changes, change it there first and follow here —
+ * these two definitions drifting apart is a runtime failure no compiler will catch.
  */
 
 declare const sessionIdBrand: unique symbol;
 declare const deviceIdBrand: unique symbol;
 
 /**
- * Opaque, backend-generated. NEVER a PID (§6.2). Branded so a raw string — a stringified
- * PID above all — cannot be passed where a session key is expected.
+ * Opaque, backend-generated. **Never a PID.** Branded so a raw string — a stringified PID above
+ * all — cannot be passed where a session key is expected.
  */
 export type SessionId = string & { readonly [sessionIdBrand]: true };
 
@@ -18,12 +20,12 @@ export type SessionState = 'active' | 'inactive' | 'expired';
 
 export interface AudioSession {
   sessionId: SessionId;
-  /** Display and debug metadata only — never an identity key (§6.2). */
+  /** Display and debug metadata only. Never use this as an identity key; see {@link SessionId}. */
   pid: number;
   displayName: string;
   processName: string;
   iconDataUri: string | null;
-  /** Linear scalar 0.0–1.0. Not a percentage, not dB (§6.1). */
+  /** Linear scalar 0.0–1.0. Not a percentage, and not dB. */
   volume: number;
   isMuted: boolean;
   outputDeviceId: DeviceId | null;
@@ -40,14 +42,14 @@ export interface AudioDevice {
 export interface MasterState {
   deviceId: DeviceId;
   deviceName: string;
-  /** Linear scalar 0.0–1.0 (§6.1). */
+  /** Linear scalar 0.0–1.0. Not a percentage, and not dB. */
   volume: number;
   isMuted: boolean;
 }
 
 export interface SessionPeak {
   sessionId: SessionId;
-  /** Linear amplitude 0.0–1.0 (§6.1). */
+  /** Linear amplitude 0.0–1.0. */
   peak: number;
 }
 
@@ -56,7 +58,7 @@ export interface PlatformCapabilities {
   hasPerAppMute: boolean;
   hasPerAppMeter: boolean;
   hasPerAppRouting: boolean;
-  /** Rendered verbatim in the macOS empty state (§2.2.5). */
+  /** Rendered verbatim by the UI in place of the session list. */
   unsupportedReason: string | null;
 }
 
@@ -68,7 +70,7 @@ export type AudioErrorKind =
   | 'unsupported'
   | 'backendFailure';
 
-/** Tagged union mirroring the `#[serde(tag = "kind", content = "detail")]` shape of §7.3. */
+/** Tagged union mirroring the Rust `#[serde(tag = "kind", content = "detail")]` representation. */
 export type AudioError =
   | { kind: 'sessionNotFound'; detail: SessionId }
   | { kind: 'deviceNotFound'; detail: DeviceId }

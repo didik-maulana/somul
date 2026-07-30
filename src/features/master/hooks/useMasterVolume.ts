@@ -11,7 +11,7 @@ export interface MasterVolume {
   toggleMute: () => Promise<void>;
 }
 
-/** Master volume is supported on every platform (§2), so this hook is never capability-gated. */
+/** Master volume works on every platform, so this hook is never capability-gated. */
 export const useMasterVolume = (): MasterVolume => {
   const master = useAudioStore((state) => state.master);
   const setMaster = useAudioStore((state) => state.setMaster);

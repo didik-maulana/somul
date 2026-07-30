@@ -4,8 +4,9 @@ use serde::Serialize;
 
 use super::{DeviceId, SessionId};
 
-/// ARCHITECTURE.md §7.3. Every IPC command resolves to `Result<T, AudioError>`; a rejected
-/// promise carries this structure, never a bare string.
+/// Every IPC command resolves to `Result<T, AudioError>`, and a rejected promise carries this
+/// structure rather than a bare string — the frontend branches on `kind` to decide whether to
+/// drop a row silently, retry, or surface a message.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", content = "detail", rename_all = "camelCase")]
 pub enum AudioError {

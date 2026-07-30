@@ -1,4 +1,4 @@
-//! ARCHITECTURE.md §7.1 command surface.
+//! The IPC command surface.
 //!
 //! Every handler is one delegation to the [`AudioBackend`](crate::audio::AudioBackend) and
 //! returns `Result<T, AudioError>`. No clamping, no diffing, no capability branching — all of
@@ -67,7 +67,8 @@ pub fn set_default_output_device(
     state.backend().set_default_output_device(&device_id)
 }
 
-/// v1.1 (§1.2). Wired now so the contract is complete; v1.0 adapters reject it as unsupported.
+/// Planned for v1.1. Wired now so the command surface is complete; v1.0 adapters reject it as
+/// unsupported rather than pretending to route anything.
 #[tauri::command]
 pub fn set_session_output_device(
     state: State<'_, AudioState>,

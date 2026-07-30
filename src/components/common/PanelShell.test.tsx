@@ -19,7 +19,7 @@ describe('PanelShell', () => {
     expect(shell).toHaveClass('w-[360px]', 'h-[520px]');
   });
 
-  /** DESIGN.md §9.1: `radius-2xl` and `e4` + `panel-glass`. */
+  /** The panel root carries `radius-2xl` and `e4` elevation plus the glass surface. */
   it('carries the panel elevation and glass surface', () => {
     render(
       <PanelShell header={<div />} footer={<div />}>
@@ -33,8 +33,8 @@ describe('PanelShell', () => {
   });
 
   /**
-   * DESIGN.md §6: `backdrop-filter` belongs on the panel root and nowhere else. A nested blur
-   * layer costs the 60 fps meter budget.
+   * `backdrop-filter` belongs on the panel root and nowhere else — a nested blur layer costs
+   * the 60 fps meter budget.
    */
   it('applies the glass surface to exactly one element', () => {
     const { container } = render(
@@ -70,7 +70,7 @@ describe('PanelHeader', () => {
     expect(container.querySelector('header')).toHaveAttribute('data-tauri-drag-region');
   });
 
-  /** DESIGN.md §9.2: without opting out, dragging swallows the buttons' clicks. */
+  /** Without opting out of the drag region, dragging swallows the buttons' clicks. */
   it('opts its icon buttons out of the drag region', () => {
     render(<PanelHeader isPinned={false} onPinToggle={noop} onSettingsOpen={noop} />);
 
@@ -127,7 +127,7 @@ describe('PanelFooter', () => {
     expect(screen.getByText('1 app')).toBeInTheDocument();
   });
 
-  /** DESIGN.md §9.10: the hotkey renders as `<kbd>` chips, one per key. */
+  /** The hotkey renders as `<kbd>` chips, one per key. */
   it('renders the hotkey as one chip per key', () => {
     const { container } = render(
       <PanelFooter activeSessionCount={0} hotkey="CmdOrCtrl+Shift+V" />,

@@ -1,23 +1,23 @@
 /**
  * Meter and volume math.
  *
- * ARCHITECTURE.md §6.1: volume and peak are linear scalars 0.0–1.0 everywhere on the wire. dB is
- * a **presentation concern only** — nothing in this file may be sent back over IPC.
+ * Volume and peak are linear scalars 0.0–1.0 everywhere on the wire. dB is a **presentation
+ * concern only** — no value produced here may be sent back over IPC.
  */
 
-/** DESIGN.md §9.6 band boundaries, in dBFS. */
+/** Meter band boundaries, in dBFS. */
 export const METER_BAND_DB = {
   midFloor: -18,
   warningFloor: -6,
   clipFloor: -1,
 } as const;
 
-/** DESIGN.md §9.6: the clip hold marker decays over 1.2 s. */
+/** How long the clip hold marker stays before it decays. */
 export const CLIP_HOLD_MS = 1200;
 
 /**
- * DESIGN.md §7 puts fall smoothing in the meter's own math rather than in a CSS transition, which
- * would smear the signal. 24 dB/s is slow enough to read and fast enough to track a gate.
+ * Fall smoothing belongs in the meter's own math rather than a CSS transition, which would smear
+ * the signal. 24 dB/s is slow enough to read and fast enough to track a gate.
  */
 export const PEAK_DECAY_DB_PER_SECOND = 24;
 
@@ -31,7 +31,7 @@ export const clampScalar = (value: number): number => {
   return Math.min(1, Math.max(0, value));
 };
 
-/** Linear amplitude to dBFS. Silence is `-Infinity`, which the UI renders as `−∞` (§6.1). */
+/** Linear amplitude to dBFS. Silence is `-Infinity`, which the UI renders as `−∞`. */
 export const scalarToDb = (scalar: number): number => {
   const clamped = clampScalar(scalar);
 
@@ -57,7 +57,7 @@ export const dbToScalar = (db: number): number => {
  */
 const BAND_EPSILON_DB = 1e-9;
 
-/** DESIGN.md §9.6. Band colors come from tokens; this only decides which band a level is in. */
+/** Band colours come from CSS tokens; this only decides which band a level falls in. */
 export const meterBand = (scalar: number): MeterBand => {
   const db = scalarToDb(scalar);
 
@@ -99,7 +99,7 @@ export const decayPeak = (previous: number, incoming: number, elapsedMs: number)
   return Math.max(target, dbToScalar(fallenDb));
 };
 
-/** §6.1: `-Infinity` renders as `−∞`. Both signs use U+2212, not a hyphen. */
+/** `-Infinity` renders as `−∞`. Both signs use U+2212 minus, not an ASCII hyphen. */
 export const formatDb = (scalar: number): string => {
   const db = scalarToDb(scalar);
 
@@ -113,6 +113,6 @@ export const formatDb = (scalar: number): string => {
 export const formatPercent = (scalar: number): string =>
   `${Math.round(clampScalar(scalar) * 100).toString()}%`;
 
-/** DESIGN.md §11: sliders expose a human string, not the raw float. */
+/** Sliders expose a human string to screen readers, not the raw float. */
 export const formatVolumeForScreenReader = (scalar: number): string =>
   `${Math.round(clampScalar(scalar) * 100).toString()} percent`;

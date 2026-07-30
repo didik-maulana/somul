@@ -10,7 +10,7 @@ const iconOf = (): string | null =>
 describe('MuteToggle', () => {
   const noop = () => undefined;
 
-  /** DESIGN.md §11: the label names the app, not the bare action. */
+  /** The label names the app, not the bare action. */
   it('names the app it mutes', () => {
     render(<MuteToggle isMuted={false} volume={0.7} appName="Spotify" onMuteToggle={noop} />);
 
@@ -33,7 +33,7 @@ describe('MuteToggle', () => {
     expect(screen.getByRole('button')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  /** DESIGN.md §9.7: Volume2 above 50%, Volume1 below, VolumeX when muted. */
+  /** Volume2 above 50%, Volume1 at or below, VolumeX when muted. */
   it('shows the loud glyph above fifty percent', () => {
     render(<MuteToggle isMuted={false} volume={0.7} appName="Spotify" onMuteToggle={noop} />);
 

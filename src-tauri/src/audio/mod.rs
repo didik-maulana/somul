@@ -13,9 +13,9 @@ pub use error::AudioError;
 
 /// Opaque, backend-generated session handle.
 ///
-/// ARCHITECTURE.md §6.2: a PID is **not** an identity key. One process routinely owns several
-/// concurrent sessions, and the OS recycles PIDs, so a PID-keyed write can land on an unrelated
-/// process after a session dies.
+/// A PID is **not** an identity key. One process routinely owns several concurrent sessions
+/// (Chrome one per tab, Discord one for input and one for output), and the OS recycles PIDs, so
+/// a PID-keyed write can land on an unrelated process after a session dies.
 ///
 /// A newtype alone does not prevent `SessionId::from(pid.to_string())`, so construction rejects
 /// any all-digit identifier: a bare integer is either a PID or a raw backend index, and neither
@@ -37,7 +37,7 @@ impl SessionId {
 
         if trimmed.chars().all(|character| character.is_ascii_digit()) {
             return Err(AudioError::BackendFailure(format!(
-                "session identifier {trimmed:?} is all digits — a PID or raw index is not a stable session key (§6.2)"
+                "session identifier {trimmed:?} is all digits — a PID or raw index is not a stable session key"
             )));
         }
 
@@ -97,12 +97,12 @@ pub enum SessionState {
 #[serde(rename_all = "camelCase")]
 pub struct AudioSession {
     pub session_id: SessionId,
-    /// Display and debug metadata only — never an identity key (§6.2).
+    /// Display and debug metadata only — never an identity key. See [`SessionId`].
     pub pid: u32,
     pub display_name: String,
     pub process_name: String,
     pub icon_data_uri: Option<String>,
-    /// Linear scalar 0.0–1.0 (§6.1).
+    /// Linear scalar 0.0–1.0. Not a percentage, and not dB.
     pub volume: f32,
     pub is_muted: bool,
     pub output_device_id: Option<DeviceId>,
@@ -123,7 +123,7 @@ pub struct AudioDevice {
 pub struct MasterState {
     pub device_id: DeviceId,
     pub device_name: String,
-    /// Linear scalar 0.0–1.0 (§6.1).
+    /// Linear scalar 0.0–1.0. Not a percentage, and not dB.
     pub volume: f32,
     pub is_muted: bool,
 }
@@ -132,7 +132,7 @@ pub struct MasterState {
 #[serde(rename_all = "camelCase")]
 pub struct SessionPeak {
     pub session_id: SessionId,
-    /// Linear amplitude 0.0–1.0 (§6.1).
+    /// Linear amplitude 0.0–1.0.
     pub peak: f32,
 }
 
@@ -143,13 +143,14 @@ pub struct PlatformCapabilities {
     pub has_per_app_mute: bool,
     pub has_per_app_meter: bool,
     pub has_per_app_routing: bool,
-    /// Rendered verbatim in the macOS empty state (§2.2.5).
+    /// Rendered verbatim by the UI in place of the session list. Populated whenever a per-app
+    /// capability is missing, so the panel can explain the limit instead of showing dead controls.
     pub unsupported_reason: Option<String>,
 }
 
 impl PlatformCapabilities {
-    /// Windows and Linux (§2). Per-app routing stays false in v1.0 — it is v1.1 on Linux and
-    /// an unproven COM spike on Windows (§1.2).
+    /// Windows and Linux. Per-app routing stays false in v1.0: it is planned for v1.1 on Linux
+    /// and remains an unproven spike on Windows, which has no public routing API.
     pub fn full_per_app() -> Self {
         Self {
             has_per_app_volume: true,
@@ -160,8 +161,8 @@ impl PlatformCapabilities {
         }
     }
 
-    /// macOS v1 (§2.2.5). The reason is rendered verbatim by the UI, which is why it is
-    /// required rather than optional here.
+    /// macOS in v1. The reason is rendered verbatim by the UI, which is why it is required here
+    /// rather than optional — a platform that reports no capability must also say why.
     pub fn master_only(reason: impl Into<String>) -> Self {
         Self {
             has_per_app_volume: false,
@@ -173,14 +174,12 @@ impl PlatformCapabilities {
     }
 }
 
-/// ARCHITECTURE.md §2.4. One trait, every adapter.
+/// One trait, every platform adapter.
 ///
 /// An operation the platform does not support returns [`AudioError::Unsupported`] — never
 /// `Ok(())`, never a silent no-op. The frontend gates on [`AudioBackend::capabilities`] rather
-/// than sniffing the OS, so a silent no-op here surfaces as a control that appears to work.
-///
-/// `set_default_output_device` is not in the §2.4 listing. §7.1 marks it v1 and T-020 requires
-/// thin handlers, so the adapter layer is the only place it can live — see DECISIONS.md D-001.
+/// than sniffing the OS, so a silent no-op here surfaces to the user as a control that appears
+/// to work and does nothing.
 pub trait AudioBackend: Send + Sync {
     fn capabilities(&self) -> PlatformCapabilities;
 
@@ -203,8 +202,11 @@ pub trait AudioBackend: Send + Sync {
     fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError>;
 }
 
-/// §6.1: volume and peak are linear scalars on the wire. Adapters clamp at the boundary so an
+/// Volume and peak are linear scalars on the wire. Adapters clamp at the boundary so an
 /// out-of-range value from the OS or the UI never reaches the other side.
+///
+/// NaN maps to silence rather than propagating: it reaches the UI as a slider with no position
+/// and the backend as an unwritable gain.
 pub fn clamp_unit_scalar(value: f32) -> f32 {
     if value.is_nan() {
         return 0.0;

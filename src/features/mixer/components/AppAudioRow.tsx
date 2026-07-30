@@ -10,7 +10,7 @@ import type { AudioSession } from '@/types/ipc';
 
 export interface AppAudioRowProps {
   session: AudioSession;
-  /** Absent when the platform has no per-app metering — the row then renders at 52 px (§5). */
+  /** Absent when the platform has no per-app metering — the row then renders at 52 px. */
   peakStream?: PeakStream;
   isDragging?: boolean;
   onVolumeChange: (volume: number) => void;
@@ -30,8 +30,8 @@ const AppIcon: React.FC<{ session: AudioSession }> = ({ session }) => {
     );
   }
 
-  // DESIGN.md §8: a missing icon falls back to a tile, not a glyph. The tile is a surface, which
-  // is why the signature gradient is permitted here (§12).
+  // A missing icon falls back to a tile, not a glyph. The tile is a surface rather than a stroke
+  // icon, which is why the signature gradient is permitted here.
   return (
     <span
       aria-hidden="true"
@@ -44,11 +44,11 @@ const AppIcon: React.FC<{ session: AudioSession }> = ({ session }) => {
 };
 
 /**
- * DESIGN.md §9.4 — the core repeated unit.
+ * The core repeated unit of the mixer.
  *
  * Pure presentation. It takes an `AudioSession` plus handlers and calls no IPC; debouncing and
- * commits belong upstream in the hook (§9). Height is derived from whether the meter renders —
- * 64 px with, 52 px without — which §5 fixes from the content stack rather than preference.
+ * commits belong upstream in the hook. Height is derived from whether the meter renders — 64 px
+ * with, 52 px without — because the content stack does not fit in 52 px once the meter is on.
  */
 export const AppAudioRow: React.FC<AppAudioRowProps> = ({
   session,

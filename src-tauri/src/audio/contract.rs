@@ -1,6 +1,6 @@
 //! The `AudioBackend` contract suite.
 //!
-//! ARCHITECTURE.md §14: written **once**, here, and run unchanged by every adapter. An adapter
+//! Written **once**, here, and run unchanged by every adapter. An adapter
 //! that needs a relaxed variant of one of these checks has found a contract disagreement, not a
 //! test to weaken.
 //!
@@ -59,7 +59,7 @@ fn wait_until(mut settled: impl FnMut() -> bool) -> bool {
     }
 }
 
-/// §2.2.5: a backend without per-app support must supply the reason, because the UI renders it
+/// A backend without per-app support must supply the reason, because the UI renders it
 /// verbatim in place of the session list. Reporting no capability and no reason leaves the panel
 /// with nothing honest to say.
 pub fn capabilities_are_self_consistent(backend: &dyn AudioBackend) {
@@ -74,7 +74,7 @@ pub fn capabilities_are_self_consistent(backend: &dyn AudioBackend) {
         let reason = capabilities
             .unsupported_reason
             .as_deref()
-            .expect("a backend without per-app volume must explain why (§2.2.5)");
+            .expect("a backend without per-app volume must explain why");
 
         assert!(
             !reason.trim().is_empty(),
@@ -84,11 +84,11 @@ pub fn capabilities_are_self_consistent(backend: &dyn AudioBackend) {
 
     assert!(
         !capabilities.has_per_app_routing,
-        "per-app routing is v1.1 — no v1.0 adapter may advertise it (§1.2)"
+        "per-app routing is v1.1 — no v1.0 adapter may advertise it"
     );
 }
 
-/// §2.4: an unsupported operation returns `Unsupported`, never `Ok(())` and never an empty
+/// An unsupported operation returns `Unsupported`, never `Ok(())` and never an empty
 /// success. A silent no-op reaches the user as a control that appears to work.
 pub fn unsupported_per_app_operations_fail_loudly(backend: &dyn AudioBackend) {
     if backend.capabilities().has_per_app_volume {
@@ -119,7 +119,7 @@ pub fn unsupported_per_app_operations_fail_loudly(backend: &dyn AudioBackend) {
     }
 }
 
-/// §6.2: `sessionId` is opaque and backend-generated. A PID is neither stable nor unique per
+/// `sessionId` is opaque and backend-generated. A PID is neither stable nor unique per
 /// session, so it must never appear as the identity key — not even stringified.
 pub fn session_identities_are_never_pids(backend: &dyn AudioBackend) {
     let Ok(sessions) = backend.list_sessions() else {
@@ -132,16 +132,16 @@ pub fn session_identities_are_never_pids(backend: &dyn AudioBackend) {
         assert_ne!(
             identifier,
             session.pid.to_string(),
-            "session identifier is the stringified PID (§6.2)"
+            "session identifier is the stringified PID"
         );
         assert!(
             !identifier.chars().all(|character| character.is_ascii_digit()),
-            "session identifier {identifier:?} is all digits — a PID or a raw index (§6.2)"
+            "session identifier {identifier:?} is all digits — a PID or a raw index"
         );
     }
 }
 
-/// §6.1: volume is a linear scalar 0.0–1.0 across the whole IPC surface.
+/// Volume is a linear scalar 0.0–1.0 across the whole IPC surface.
 pub fn sessions_report_wire_legal_values(backend: &dyn AudioBackend) {
     let Ok(sessions) = backend.list_sessions() else {
         return;
@@ -150,13 +150,13 @@ pub fn sessions_report_wire_legal_values(backend: &dyn AudioBackend) {
     for session in sessions {
         assert!(
             is_unit_scalar(session.volume),
-            "session {} reports volume {} outside 0.0–1.0 (§6.1)",
+            "session {} reports volume {} outside 0.0–1.0",
             session.session_id,
             session.volume
         );
         assert!(
             !session.process_name.trim().is_empty(),
-            "session {} has no process name — settings are keyed by it (§11)",
+            "session {} has no process name — settings are keyed by it",
             session.session_id
         );
     }
@@ -190,7 +190,7 @@ pub fn session_volume_round_trips(backend: &dyn AudioBackend) {
     );
 }
 
-/// Out-of-range input is clamped at the adapter boundary rather than propagated (§6.1).
+/// Out-of-range input is clamped at the adapter boundary rather than propagated.
 pub fn session_volume_is_clamped(backend: &dyn AudioBackend) {
     let _guard = exclusive();
 
@@ -215,7 +215,7 @@ pub fn session_volume_is_clamped(backend: &dyn AudioBackend) {
 
         assert!(
             is_unit_scalar(observed.volume),
-            "writing {written} left the session at {} (§6.1)",
+            "writing {written} left the session at {}",
             observed.volume
         );
     }
@@ -247,7 +247,7 @@ pub fn session_mute_round_trips(backend: &dyn AudioBackend) {
     }
 }
 
-/// §7.3: the app closed mid-write. The UI drops the row silently, which it can only do if the
+/// The app closed mid-write. The UI drops the row silently, which it can only do if the
 /// adapter distinguishes this from a generic failure.
 pub fn writes_to_a_dead_session_report_session_not_found(backend: &dyn AudioBackend) {
     if !backend.capabilities().has_per_app_volume {
@@ -277,11 +277,11 @@ pub fn master_state_is_wire_legal(backend: &dyn AudioBackend) {
 
     let master = backend
         .master()
-        .expect("master volume is supported on every platform (§2)");
+        .expect("master volume is supported on every platform");
 
     assert!(
         is_unit_scalar(master.volume),
-        "master volume {} is outside 0.0–1.0 (§6.1)",
+        "master volume {} is outside 0.0–1.0",
         master.volume
     );
     assert!(
@@ -291,7 +291,7 @@ pub fn master_state_is_wire_legal(backend: &dyn AudioBackend) {
 }
 
 /// A hardware-gain device — an aggregate, most HDMI outputs, many USB DACs — exposes no software
-/// volume or mute. §2.4 says the answer there is `Unsupported`, never a no-op, so that is the one
+/// volume or mute. The answer there is `Unsupported`, never a no-op, so that is the one
 /// alternative outcome the suite accepts. Any other error, or a write that reports success without
 /// taking effect, still fails.
 fn assert_supported_or_refused(result: Result<(), AudioError>, operation: &str) -> bool {
@@ -354,7 +354,7 @@ pub fn exactly_one_output_device_is_default(backend: &dyn AudioBackend) {
 
     let devices = backend
         .list_output_devices()
-        .expect("device enumeration is supported on every platform (§2)");
+        .expect("device enumeration is supported on every platform");
 
     assert!(
         !devices.is_empty(),
@@ -427,7 +427,7 @@ pub fn switching_to_an_unknown_device_reports_device_not_found(backend: &dyn Aud
     );
 }
 
-/// §1.2: per-app routing is v1.1. No v1.0 adapter may quietly accept it.
+/// Per-app routing is planned for v1.1. No v1.0 adapter may quietly accept it.
 pub fn per_app_routing_is_unsupported_in_v1(backend: &dyn AudioBackend) {
     let session = backend
         .list_sessions()
@@ -446,11 +446,11 @@ pub fn per_app_routing_is_unsupported_in_v1(backend: &dyn AudioBackend) {
             "per-app routing returned Unsupported with a blank reason"
         ),
         Err(other) => panic!("per-app routing must return Unsupported, got {other:?}"),
-        Ok(()) => panic!("per-app routing is v1.1 and must not succeed in v1.0 (§1.2)"),
+        Ok(()) => panic!("per-app routing is v1.1 and must not succeed in v1.0"),
     }
 }
 
-/// §6.1 plus §4.1: peaks are linear amplitudes, and one tick covers every session at once.
+/// Peaks are linear amplitudes, and one batched tick covers every session at once.
 pub fn peaks_cover_every_session_exactly_once(backend: &dyn AudioBackend) {
     let _guard = exclusive();
 
@@ -459,7 +459,7 @@ pub fn peaks_cover_every_session_exactly_once(backend: &dyn AudioBackend) {
     for peak in &peaks {
         assert!(
             is_unit_scalar(peak.peak),
-            "session {} reports peak {} outside 0.0–1.0 (§6.1)",
+            "session {} reports peak {} outside 0.0–1.0",
             peak.session_id,
             peak.peak
         );
@@ -479,7 +479,7 @@ pub fn peaks_cover_every_session_exactly_once(backend: &dyn AudioBackend) {
 
     assert_eq!(
         reported, expected,
-        "one batched read must cover every session exactly once (§4.1)"
+        "one batched read must cover every session exactly once"
     );
 }
 

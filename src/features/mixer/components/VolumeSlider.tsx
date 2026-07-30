@@ -5,26 +5,26 @@ import { clampScalar, formatVolumeForScreenReader } from '@/lib/audio';
 import { cn } from '@/lib/utils';
 
 export interface VolumeSliderProps {
-  /** Linear scalar 0.0–1.0 (ARCHITECTURE.md §6.1). */
+  /** Linear scalar 0.0–1.0, not a percentage. */
   volume: number;
-  /** Names the control for screen readers — "Volume for Spotify", not "Volume" (DESIGN.md §11). */
+  /** Names the control for screen readers — "Volume for Spotify", not a bare "Volume". */
   label: string;
   isMuted?: boolean;
   isDisabled?: boolean;
-  /** Fires on every pointer move and key press. Committing is the caller's job (§9). */
+  /** Fires on every pointer move and key press. Committing is the caller's job. */
   onVolumeChange: (volume: number) => void;
-  /** Radix fires this on pointer-up and key-up — the guaranteed flush point (§9). */
+  /** Radix fires this on pointer-up and key-up — the guaranteed flush point. */
   onVolumeCommit?: (volume: number) => void;
   className?: string;
 }
 
 /**
- * DESIGN.md §9.5. Track 4 px, thumb 14 px growing to 16 px on hover.
+ * Track 4 px, thumb 14 px growing to 16 px on hover.
  *
- * The thumb carries **no transition on position** — only on scale and shadow (§7). A transition
+ * The thumb carries **no transition on position** — only on scale and shadow. A transition
  * on translate would lag the pointer during a drag, which reads as the control fighting the user.
  * Styling reaches into the unmodified primitive through `data-slot` selectors rather than forking
- * it (§12 component boundaries).
+ * it, which would put a maintained fork of a vendored primitive in the tree.
  */
 export const VolumeSlider: React.FC<VolumeSliderProps> = ({
   volume,
@@ -41,7 +41,7 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
 
   // Radix puts `role="slider"` on the thumb, but the primitive spreads its props onto the root,
   // so a11y attributes set here never reach the element that announces them. Writing them to the
-  // thumb directly is what keeps §11 satisfied without forking the primitive (§12).
+  // thumb directly keeps the control accessible without forking the primitive.
   useLayoutEffect(() => {
     const thumb = rootRef.current?.querySelector('[data-slot="slider-thumb"]');
 

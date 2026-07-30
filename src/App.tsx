@@ -16,8 +16,8 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import type { AudioSession } from '@/types/ipc';
 
 /**
- * ARCHITECTURE.md §12: composition only. No `invoke` call appears in this file or in any
- * component file — every IPC round trip goes through a feature hook.
+ * Composition only. No `invoke` call appears in this file or in any component file — every IPC
+ * round trip goes through a feature hook.
  */
 export const App: FC = () => {
   const peakStream = usePeakStream();

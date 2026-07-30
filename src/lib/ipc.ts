@@ -1,7 +1,7 @@
 /**
- * The only file permitted to import from `@tauri-apps/api` (ARCHITECTURE.md §5). The rule is
- * enforced by `no-restricted-imports` in `eslint.config.js`, not by convention — everything
- * else consumes these wrappers, which keeps the frontend testable without a Tauri runtime.
+ * The only file permitted to import from `@tauri-apps/api`, enforced by `no-restricted-imports`
+ * in `eslint.config.js` rather than by convention. Everything else consumes these wrappers, which
+ * is what lets the whole frontend be tested without a Tauri runtime.
  */
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
@@ -19,8 +19,8 @@ import type {
 } from '@/types/ipc';
 
 /**
- * Mirrors the Rust `SessionId` guard (§6.2). An all-digit identifier is a PID or a raw backend
- * index, and neither is stable enough to key a write.
+ * Mirrors the guard on the Rust `SessionId`. An all-digit identifier is a PID or a raw backend
+ * index, and neither is stable enough to key a write — the OS reuses both.
  */
 export const parseSessionId = (raw: string): SessionId => {
   const trimmed = raw.trim();
@@ -31,7 +31,7 @@ export const parseSessionId = (raw: string): SessionId => {
 
   if (/^\d+$/.test(trimmed)) {
     throw new Error(
-      `Session identifier "${trimmed}" is all digits — a PID is not a session key (§6.2)`,
+      `Session identifier "${trimmed}" is all digits — a PID is not a session key`,
     );
   }
 
@@ -63,9 +63,9 @@ const describe = (error: AudioError): string =>
   'detail' in error ? `${error.kind}: ${error.detail}` : error.kind;
 
 /**
- * A rejected command carries a structured `AudioError` (§7.1), never a bare string. The
- * structure travels on `audioError`; the `Error` shell exists so rejections keep a stack and
- * behave like every other thrown value in the app.
+ * A rejected command carries a structured `AudioError`, never a bare string. The structure
+ * travels on `audioError`; the `Error` shell exists so rejections keep a stack trace and behave
+ * like every other thrown value in the app.
  */
 export class AudioCommandError extends Error {
   readonly audioError: AudioError;
@@ -78,8 +78,8 @@ export class AudioCommandError extends Error {
 }
 
 /**
- * Normalizes anything caught at the IPC boundary into the §7.3 table, so callers only ever
- * branch on `kind`. A non-`AudioError` reaching here is a bug in the handler layer.
+ * Normalizes anything caught at the IPC boundary into an `AudioError`, so callers only ever
+ * branch on `kind`. Anything else reaching here is a bug in the handler layer.
  */
 export const toAudioError = (thrown: unknown): AudioError => {
   if (thrown instanceof AudioCommandError) {
@@ -117,7 +117,7 @@ export const getPlatformCapabilities = (): Promise<PlatformCapabilities> =>
 export const getAudioSessions = (): Promise<AudioSession[]> =>
   command<AudioSession[]>('get_audio_sessions');
 
-/** `volume` is a linear scalar 0.0–1.0 (§6.1). */
+/** `volume` is a linear scalar 0.0–1.0, not a percentage. */
 export const setSessionVolume = (sessionId: SessionId, volume: number): Promise<void> =>
   mutation('set_session_volume', { sessionId, volume });
 
@@ -126,7 +126,7 @@ export const setSessionMute = (sessionId: SessionId, isMuted: boolean): Promise<
 
 export const getMasterState = (): Promise<MasterState> => command<MasterState>('get_master_state');
 
-/** `volume` is a linear scalar 0.0–1.0 (§6.1). */
+/** `volume` is a linear scalar 0.0–1.0, not a percentage. */
 export const setMasterVolume = (volume: number): Promise<void> =>
   mutation('set_master_volume', { volume });
 
@@ -140,8 +140,8 @@ export const setDefaultOutputDevice = (deviceId: DeviceId): Promise<void> =>
   mutation('set_default_output_device', { deviceId });
 
 /**
- * Starts and stops the meter loop (§4.1). Not cosmetic — this is where the background CPU
- * budget is enforced.
+ * Starts and stops the meter loop. Not cosmetic — a hidden panel must do no audio work at all,
+ * and this call is where that is enforced.
  */
 export const setPanelVisibility = (isVisible: boolean): Promise<void> =>
   mutation('set_panel_visibility', { isVisible });
@@ -160,7 +160,7 @@ export const AUDIO_EVENT = {
   backendError: 'audio://backend-error',
 } as const;
 
-/** One batch per tick covering every session — never one emit per session (§4.1). */
+/** One batch per tick covering every session — never one emit per session. */
 export const onPeaks = (onEvent: (peaks: SessionPeak[]) => void): Promise<UnlistenFn> =>
   listen<SessionPeak[]>(AUDIO_EVENT.peaks, ({ payload }) => {
     onEvent(payload);

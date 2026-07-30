@@ -53,7 +53,7 @@ describe('AppAudioRow', () => {
     expect(screen.getByText('74%')).toBeInTheDocument();
   });
 
-  /** DESIGN.md §4: names truncate to one line, with the full name in a title tooltip. */
+  /** Names truncate to one line, with the full name kept in a title tooltip. */
   it('truncates a long name to one line and keeps the full name in a tooltip', () => {
     renderRow({
       session: session({ displayName: 'A Very Long Application Name That Will Not Fit' }),
@@ -64,7 +64,7 @@ describe('AppAudioRow', () => {
     expect(name).toHaveClass('truncate');
   });
 
-  /** DESIGN.md §5: 64 px with the meter, 52 px without. Derived, not chosen. */
+  /** 64 px with the meter, 52 px without. Derived from the content stack, not chosen. */
   it('is taller when the peak meter renders', () => {
     const { row } = renderRow();
     expect(row).toHaveClass('h-16');
@@ -89,7 +89,7 @@ describe('AppAudioRow', () => {
     expect(screen.queryByTestId('app-icon-fallback')).not.toBeInTheDocument();
   });
 
-  describe('the six §9.4 states', () => {
+  describe('the six row states', () => {
     it('1. default — transparent with no border colour', () => {
       const { row } = renderRow();
 
@@ -147,7 +147,7 @@ describe('AppAudioRow', () => {
     expect(screen.queryByText('MUTED')).not.toBeInTheDocument();
   });
 
-  /** §9.4: pure presentation — it reports intent and calls no IPC. */
+  /** Pure presentation — the row reports intent and calls no IPC itself. */
   it('reports a mute toggle without touching IPC', async () => {
     const user = userEvent.setup();
     const { onMuteToggle } = renderRow();

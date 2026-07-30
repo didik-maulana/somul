@@ -255,8 +255,9 @@
     0 4px 16px color-mix(in srgb, var(--primary) 18%, transparent);
 }
 
-/* DESIGN.md §12: permitted on the header wordmark, the master slider fill, the
-   missing-icon fallback tile, and an empty-state background surface. Nowhere else. */
+/* The signature gradient. Permitted on the header wordmark, the master slider fill, and the
+   missing-app-icon fallback tile. Nowhere else — it is the one element allowed to outrank the
+   app rows, and reusing it elsewhere flattens that hierarchy. */
 @utility bg-signature {
   background-image: linear-gradient(135deg, #293681 0%, #4274d9 55%, #95ccdd 100%);
 }

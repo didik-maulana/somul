@@ -2,13 +2,13 @@ import { create } from 'zustand';
 
 export type Theme = 'dark' | 'light' | 'system';
 
-/** Mirrors `AppSettings` in `src-tauri/src/settings.rs` (ARCHITECTURE.md §11). */
+/** Mirrors `AppSettings` in `src-tauri/src/settings.rs`. Keep the two in step. */
 export interface SettingsState {
   hotkey: string;
   theme: Theme;
   shouldLaunchAtLogin: boolean;
   isPanelPinned: boolean;
-  /** §8.3: set when the hotkey could not be registered. The app stays usable through the tray. */
+  /** Set when the hotkey could not be registered. The app stays usable through the tray. */
   hotkeyWarning: string | null;
 
   setHotkey: (hotkey: string) => void;

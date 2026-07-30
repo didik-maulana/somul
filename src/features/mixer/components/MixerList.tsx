@@ -19,7 +19,7 @@ export interface MixerListProps {
 }
 
 /**
- * ARCHITECTURE.md §2.2.5 and §6: the branch is on `capabilities`, never on a userAgent or an OS
+ * The branch is on `capabilities`, never on a userAgent or an OS
  * sniff. A platform without per-app volume gets the notice and **no session rows at all** — dead
  * sliders would imply a control that does nothing.
  */

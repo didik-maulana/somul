@@ -170,7 +170,7 @@ describe('clampScalar', () => {
 });
 
 describe('CLIP_HOLD_MS', () => {
-  it('matches the 1.2 s hold in DESIGN.md §9.6', () => {
+  it('holds a clip marker for 1.2 seconds', () => {
     expect(CLIP_HOLD_MS).toBe(1200);
   });
 });

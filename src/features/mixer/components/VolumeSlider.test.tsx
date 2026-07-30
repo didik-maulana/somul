@@ -30,7 +30,7 @@ describe('VolumeSlider', () => {
     expect(slider).toHaveAttribute('aria-valuemax', '100');
   });
 
-  /** DESIGN.md §11: a human string, not the raw float. */
+  /** A human string, not the raw float. */
   it('exposes aria-valuetext as a human string', () => {
     const { slider } = renderSlider();
 
@@ -43,7 +43,7 @@ describe('VolumeSlider', () => {
     expect(slider).toHaveAttribute('aria-label', 'Volume for Spotify');
   });
 
-  /** DESIGN.md §11: ←/→ moves 1%. */
+  /** Arrow keys move 1%. */
   it('steps by one percent with the arrow keys', async () => {
     const user = userEvent.setup();
     const { onVolumeChange, slider } = renderSlider();
@@ -58,7 +58,7 @@ describe('VolumeSlider', () => {
     expect(onVolumeChange).toHaveBeenLastCalledWith(0.73);
   });
 
-  /** DESIGN.md §11: Shift+←/→ moves 10%. */
+  /** Shift plus an arrow key moves 10%. */
   it('steps by ten percent with shift held', async () => {
     const user = userEvent.setup();
     const { onVolumeChange, slider } = renderSlider();
@@ -85,7 +85,7 @@ describe('VolumeSlider', () => {
     expect(slider).toHaveAttribute('aria-valuenow', '100');
   });
 
-  /** DESIGN.md §9.4: a muted row drops its slider fill to `muted`. */
+  /** A muted row drops its slider fill to `muted`. */
   it('drops the range to the muted fill when muted', () => {
     const { container } = render(
       <VolumeSlider
@@ -112,8 +112,8 @@ describe('VolumeSlider', () => {
   });
 
   /**
-   * DESIGN.md §7: no transition on thumb POSITION during a drag; 140 ms on scale and shadow
-   * only. A transition on translate would lag the pointer.
+   * No transition on thumb POSITION during a drag; 140 ms on scale and shadow only. A
+   * transition on translate would lag the pointer, which reads as the control fighting back.
    */
   it('transitions only transform and shadow on the thumb, never position', () => {
     const { container } = render(
@@ -130,7 +130,7 @@ describe('VolumeSlider', () => {
     expect(root?.className).not.toContain('transition-[left');
   });
 
-  /** DESIGN.md §10: the focus ring is keyboard-only and offsets against `popover`. */
+  /** The focus ring is keyboard-only and offsets against `popover`, the surface behind it. */
   it('offsets its focus ring against the popover surface', () => {
     const { container } = render(
       <VolumeSlider volume={0.5} label="Volume for Spotify" onVolumeChange={vi.fn()} />,

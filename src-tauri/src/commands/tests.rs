@@ -2,7 +2,7 @@
 //!
 //! Calling the functions directly would prove nothing about registration or argument decoding —
 //! a command missing from `generate_handler!`, or a parameter whose name does not match the
-//! §7.1 payload, would still pass. These invoke by command name, the way the frontend does.
+//! IPC payload, would still pass. These invoke by command name, the way the frontend does.
 
 use serde_json::{json, Value};
 use tauri::ipc::{CallbackFn, InvokeBody};
@@ -166,7 +166,8 @@ fn a_volume_write_round_trips_through_the_command_layer() {
     assert_eq!(written["volume"], json!(0.31));
 }
 
-/// §7.3: the row is dropped silently by the UI, which needs the kind to be distinguishable.
+/// The row is dropped silently by the UI, which needs this kind to be distinguishable from a
+/// genuine backend failure.
 #[test]
 fn a_write_to_a_dead_session_surfaces_session_not_found() {
     let webview = full_per_app();
@@ -181,7 +182,7 @@ fn a_write_to_a_dead_session_surfaces_session_not_found() {
     assert_eq!(error["kind"], json!("sessionNotFound"));
 }
 
-/// §6.2: the guard lives on the Rust `SessionId`, so a PID is refused during argument decoding —
+/// The guard lives on the Rust `SessionId`, so a PID is refused during argument decoding —
 /// before any handler body runs.
 #[test]
 fn a_stringified_pid_is_refused_at_the_ipc_boundary() {
@@ -198,7 +199,7 @@ fn a_stringified_pid_is_refused_at_the_ipc_boundary() {
     );
 }
 
-/// §2.2.5: the macOS shape reports no per-app capability and refuses the per-app commands
+/// The macOS shape reports no per-app capability and refuses the per-app commands
 /// loudly, so the UI can render the notice instead of dead sliders.
 #[test]
 fn the_master_only_shape_refuses_per_app_commands() {

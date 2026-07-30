@@ -1,9 +1,9 @@
 //! Tray icon, menu, and panel placement.
 //!
-//! ARCHITECTURE.md §8.1 orders startup so the tray is interactive before the WebView exists —
-//! that ordering *is* the 300 ms tray-ready budget. [`register`] therefore runs ahead of the
-//! window builder, and it reports failure instead of aborting so the §8.2 Linux fallback can
-//! open a normal decorated window.
+//! Startup is ordered so the tray is interactive before the WebView exists — that ordering *is*
+//! the tray-ready budget. [`register`] therefore runs ahead of the window builder, and it
+//! reports failure instead of aborting so a desktop without tray support can fall back to a
+//! normal decorated window.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -18,8 +18,8 @@ use crate::commands::AudioState;
 
 const TOGGLE_ITEM_ID: &str = "toggle-panel";
 
-/// Clicking the tray while the panel is open takes focus away from it first, so the §8.2
-/// focus-loss rule hides the panel *before* the click event arrives. A toggle would then see a
+/// Clicking the tray while the panel is open takes focus away from it first, so the focus-loss
+/// rule hides the panel *before* the click event arrives. A toggle would then see a
 /// hidden panel and reopen it, and the panel could never be dismissed from the tray.
 ///
 /// Within this window, a toggle treats the panel as still open and leaves it closed.
@@ -30,7 +30,7 @@ const FOCUS_HIDE_GRACE: Duration = Duration::from_millis(300);
 /// openable only from the desktop — every click from inside another app would flash and vanish.
 const SHOW_SETTLE: Duration = Duration::from_millis(400);
 
-/// Panel interaction state: the §8.2 pin, plus the timestamps that keep show and hide from
+/// Panel interaction state: the user's pin, plus the timestamps that keep show and hide from
 /// fighting each other.
 #[derive(Default)]
 pub struct PanelState {
@@ -90,7 +90,7 @@ impl PanelState {
 /// Registers the tray icon and menu.
 ///
 /// Returns `false` when the platform refuses one — a Linux desktop without
-/// `libayatana-appindicator3`, or GNOME without the AppIndicator extension (§8.2). The caller
+/// `libayatana-appindicator3`, or GNOME without the AppIndicator extension. The caller
 /// falls back to a normal window; exiting would leave the user with no way to reach the app.
 pub fn register<R: Runtime>(app: &AppHandle<R>) -> bool {
     let Ok(menu) = build_menu(app) else {
@@ -107,7 +107,7 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> bool {
         .show_menu_on_left_click(false)
         .on_menu_event(handle_menu_event)
         .on_tray_icon_event(|tray, event| {
-            // §8.2: the positioner needs every tray event forwarded, or TrayBottomCenter has no
+            // The positioner needs every tray event forwarded, or TrayBottomCenter has no
             // tray rectangle to anchor against and silently falls back to the screen center.
             tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
 
@@ -168,7 +168,7 @@ pub fn show_panel<R: Runtime>(panel: &WebviewWindow<R>) {
         state.record_shown();
     }
 
-    // §8.2: the constrained variant clamps to screen bounds, which is what keeps the panel
+    // The constrained variant clamps to screen bounds, which is what keeps the panel
     // on-screen with a multi-monitor layout or a tray near a display edge.
     let _ = panel.move_window_constrained(Position::TrayBottomCenter);
     let _ = panel.show();
@@ -183,7 +183,7 @@ pub fn hide_panel<R: Runtime>(panel: &WebviewWindow<R>) {
     set_panel_visibility(panel.app_handle(), false);
 }
 
-/// §4.1: hiding must stop the meter loop. Going through the shared state rather than the IPC
+/// Hiding must stop the meter loop. Going through the shared state rather than the IPC
 /// command keeps the tray path and the frontend path on one gate.
 fn set_panel_visibility<R: Runtime>(app: &AppHandle<R>, is_visible: bool) {
     if let Some(state) = app.try_state::<AudioState>() {
@@ -191,7 +191,7 @@ fn set_panel_visibility<R: Runtime>(app: &AppHandle<R>, is_visible: bool) {
     }
 }
 
-/// §8.2: focus loss hides the panel unless it is pinned, and hiding stops the meter loop.
+/// Focus loss hides the panel unless the user pinned it, and hiding stops the meter loop.
 pub fn handle_window_event<R: Runtime>(panel: &WebviewWindow<R>, event: &WindowEvent) {
     let WindowEvent::Focused(false) = event else {
         return;

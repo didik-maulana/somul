@@ -10,10 +10,11 @@ export interface EmptyStateProps {
 }
 
 /**
- * DESIGN.md §9.9 — centred in the scroll region, block capped at 240 px.
+ * Centred in the scroll region, with the text block capped at 240 px.
  *
- * The icon is a flat brand weight rather than gradient-filled: §8 forbids overriding
- * `currentColor` on a stroke icon, and `background-clip: text` would break the theme swap with it.
+ * The icon is a flat brand weight rather than gradient-filled. Gradient-filling a stroke icon
+ * means overriding `currentColor`, and `background-clip: text` breaks the light/dark theme swap
+ * along with it.
  */
 export const EmptyState: React.FC<EmptyStateProps> = ({ headline, subline, onRefresh }) => (
   <div

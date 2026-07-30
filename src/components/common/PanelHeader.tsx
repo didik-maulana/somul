@@ -10,7 +10,7 @@ export interface PanelHeaderProps {
 }
 
 /**
- * DESIGN.md §9.2 — 48 px, bottom hairline, and the window drag region.
+ * The 48 px header: bottom hairline, and the window drag region.
  *
  * The drag region is the header itself, so the two icon buttons opt out with
  * `data-tauri-drag-region="false"`. Without that the compositor swallows their clicks and the

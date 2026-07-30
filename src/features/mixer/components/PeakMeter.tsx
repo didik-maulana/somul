@@ -12,13 +12,13 @@ export interface PeakMeterProps {
 }
 
 /**
- * DESIGN.md §9.6 — a 3 px bar on a `bg-muted` track.
+ * A 3 px bar on a `bg-muted` track.
  *
  * The fill is a single element driven by `transform: scaleX()` from the shared rAF loop. It
  * holds no state and never re-renders on a level change: this component mounts, hands its
  * element to the stream, and is untouched by the 30 Hz event flow after that.
  *
- * `aria-hidden` because the meter is decorative (§11) — level is conveyed by the dB readout,
+ * `aria-hidden` because the meter is decorative — level is conveyed by the dB readout,
  * never by color alone.
  */
 export const PeakMeter: FC<PeakMeterProps> = ({ sessionId, stream, isMuted = false, className }) => {

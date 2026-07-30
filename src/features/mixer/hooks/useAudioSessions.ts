@@ -25,8 +25,8 @@ export interface AudioSessions {
 /**
  * Owns the session list and its IPC traffic.
  *
- * ARCHITECTURE.md §12: components never call `invoke`. Everything here goes through
- * `lib/ipc.ts`, which is also the only file allowed to import `@tauri-apps/api`.
+ * Components never call `invoke`. Everything here goes through `lib/ipc.ts`, which is the only
+ * file allowed to import `@tauri-apps/api`.
  */
 export const useAudioSessions = (): AudioSessions => {
   const sessions = useAudioStore((state) => state.sessions);
@@ -44,7 +44,7 @@ export const useAudioSessions = (): AudioSessions => {
     void getAudioSessions()
       .then(replaceSessions)
       .catch(() => {
-        // §7.3: an unsupported platform is expected here — the capability gate renders the
+        // An unsupported platform is expected here — the capability gate renders the
         // notice instead, and there is no session list to show.
         replaceSessions([]);
       });
@@ -81,7 +81,7 @@ export const useAudioSessions = (): AudioSessions => {
     };
   }, [replaceSessions]);
 
-  /** Optimistic and authoritative during a drag (§9) — no round trip. */
+  /** Optimistic and authoritative during a drag — the pointer wins, with no round trip. */
   const changeVolume = useCallback(
     (sessionId: SessionId, volume: number) => {
       setSessionVolumeLocally(sessionId, volume);
@@ -93,7 +93,7 @@ export const useAudioSessions = (): AudioSessions => {
     try {
       await setSessionVolume(sessionId, volume);
     } catch (thrown) {
-      // §7.3: SessionNotFound means the app closed mid-write. The row leaves on the next
+      // SessionNotFound means the app closed mid-write. The row leaves on the next
       // sessions-changed event; surfacing an error here would be noise.
       if (toAudioError(thrown).kind !== 'sessionNotFound') {
         throw thrown;

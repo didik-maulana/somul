@@ -5,7 +5,7 @@ export interface PanelFooterProps {
   hotkey: string;
 }
 
-/** DESIGN.md §9.10 — the accelerator renders as one `<kbd>` chip per key. */
+/** Splits an accelerator so each key can render as its own `<kbd>` chip. */
 const toKeys = (hotkey: string): string[] =>
   hotkey
     .split('+')

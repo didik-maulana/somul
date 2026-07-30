@@ -19,7 +19,7 @@ describe('useVolumeCommit', () => {
     expect(VOLUME_COMMIT_DEBOUNCE_MS).toBe(50);
   });
 
-  /** ARCHITECTURE.md §9: a drag produces one write per window, not one per pointer move. */
+  /** A drag produces one write per window, not one per pointer move. */
   it('coalesces a burst of moves into a single trailing write', () => {
     const commit = vi.fn();
     const { result } = renderHook(() => useVolumeCommit(commit));
@@ -52,7 +52,7 @@ describe('useVolumeCommit', () => {
   });
 
   /**
-   * §9: the flush is guaranteed. Releasing inside the debounce window must not lose the final
+   * The flush is guaranteed. Releasing inside the debounce window must not lose the final
    * value — otherwise the backend settles a few percent off where the thumb visibly sits.
    */
   it('flushes immediately on pointer-up', () => {

@@ -7,13 +7,13 @@ import type { SessionId, SessionPeak } from '@/types/ipc';
 /**
  * ONE requestAnimationFrame loop for the whole panel.
  *
- * ARCHITECTURE.md §9 and DESIGN.md §9.6: peaks arrive at 30 Hz and must never reach Zustand or
+ * Peaks arrive at 30 Hz and must never reach Zustand or
  * React state. A store write per frame would re-render every subscriber 30 times a second, and
  * the panel would miss the 60 fps budget with a dozen rows open. Levels live in refs; the loop
  * writes `transform: scaleX()` straight to registered elements.
  *
  * The loop is also what interpolates: Rust emits at 30 Hz, the UI decays between frames so the
- * fall reads smoothly at 60 fps (§1).
+ * fall reads smoothly at 60 fps.
  */
 export interface PeakStream {
   /** Registers a bar element. Returns an unregister function for cleanup. */
@@ -67,8 +67,8 @@ export const usePeakStream = (): PeakStream => {
 
         displayed.current.set(sessionId, level);
 
-        // scaleX only — DESIGN.md §12 forbids animating width, and a CSS transition here would
-        // smear the signal (§7).
+        // scaleX only. Animating width would trigger layout every frame, and a CSS transition
+        // here would smear the signal.
         registration.element.style.transform = `scaleX(${level.toString()})`;
 
         const band = meterBand(level);

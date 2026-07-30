@@ -35,7 +35,7 @@ describe('EmptyState', () => {
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
-  /** DESIGN.md §8: never gradient-fill a stroke icon — it breaks currentColor and the theme swap. */
+  /** Never gradient-fill a stroke icon — it breaks currentColor and the theme swap with it. */
   it('renders the icon as a flat brand weight, not a gradient fill', () => {
     const { container } = render(<EmptyState headline="No audio" subline="Nothing yet" />);
 
@@ -47,7 +47,7 @@ describe('EmptyState', () => {
 });
 
 describe('CapabilityNotice', () => {
-  /** ARCHITECTURE.md §2.2.5: the reason is the backend's, and is rendered verbatim. */
+  /** The reason belongs to the backend and is rendered verbatim. */
   it('renders unsupportedReason verbatim', () => {
     const reason =
       'macOS does not expose per-app volume control. SOMUL controls the system output instead.';
@@ -66,9 +66,8 @@ describe('CapabilityNotice', () => {
   });
 
   /**
-   * GOAL.md §7.3, the highest-value refutation for this task: does the macOS path render dead
-   * sliders instead of a notice? An empty state that explains the limit is honest; a row of
-   * disabled controls is not (§2.2.5).
+   * The failure this guards against: rendering dead sliders instead of a notice. An empty state
+   * that explains the limit is honest; a row of disabled controls is not.
    */
   it('renders ZERO session rows and zero controls when per-app volume is absent', () => {
     render(<CapabilityNotice capabilities={masterOnly('macOS exposes master volume only.')} />);

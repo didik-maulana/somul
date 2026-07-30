@@ -67,8 +67,7 @@ describe('MixerList', () => {
   });
 
   /**
-   * ARCHITECTURE.md §2.2.5 and GOAL.md §7.3: the macOS path must show the notice, never a row of
-   * dead sliders.
+   * A platform without per-app volume must show the notice, never a row of dead sliders.
    */
   it('renders the notice and ZERO session rows when per-app volume is absent', () => {
     renderList({
@@ -81,7 +80,7 @@ describe('MixerList', () => {
     expect(screen.queryAllByRole('slider')).toHaveLength(0);
   });
 
-  /** §6: the branch is on capabilities, not on an OS sniff. */
+  /** The branch is on reported capabilities, not on an OS sniff. */
   it('gates on capabilities rather than the user agent', () => {
     const userAgent = vi.spyOn(globalThis.navigator, 'userAgent', 'get');
 
@@ -106,7 +105,7 @@ describe('MixerList', () => {
     expect(screen.queryByTestId('peak-meter')).not.toBeInTheDocument();
   });
 
-  /** DESIGN.md §9.1: the scroll region contains its own overscroll. */
+  /** The scroll region contains its own overscroll, so it never scroll-chains to the panel. */
   it('contains overscroll in the scroll region', () => {
     renderList();
 

@@ -10,8 +10,6 @@ import type {
 } from '@/types/ipc';
 
 /**
- * ARCHITECTURE.md §9.
- *
  * Peaks are **absent from this store by construction**. They arrive at 30 Hz, and routing them
  * through Zustand would re-render every subscriber thirty times a second. They live in refs
  * driven by the shared rAF loop instead — see `usePeakStream`.
@@ -35,7 +33,7 @@ export interface AudioStoreState {
 }
 
 /**
- * The reconciliation rule (§9). While a session is being dragged, an incoming
+ * The reconciliation rule. While a session is being dragged, an incoming
  * `audio://sessions-changed` must not overwrite that session's volume — the pointer is
  * authoritative until release. Without this the backend's echo of the *previous* value lands
  * mid-drag and the slider stutters backwards under the user's finger.

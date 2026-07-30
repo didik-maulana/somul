@@ -15,9 +15,10 @@ struct MockState {
     tick: u32,
 }
 
-/// Deterministic in-memory backend. ARCHITECTURE.md §14 makes this a release requirement, not a
-/// convenience: it is the only way to exercise the frontend and the contract suite without audio
-/// hardware in CI.
+/// Deterministic in-memory backend.
+///
+/// A release requirement rather than a convenience: it is the only way to exercise the frontend
+/// and the contract suite without audio hardware, which CI does not have.
 pub struct MockAudioBackend {
     capabilities: PlatformCapabilities,
     state: Mutex<MockState>,
@@ -32,7 +33,7 @@ impl MockAudioBackend {
         }
     }
 
-    /// macOS v1 shape (§2.2.5) — master only, with the reason the UI renders verbatim.
+    /// The macOS v1 shape — master only, with the reason the UI renders verbatim.
     pub fn master_only() -> Self {
         Self {
             capabilities: PlatformCapabilities::master_only(MASTER_ONLY_REASON),

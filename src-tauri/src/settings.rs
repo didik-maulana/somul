@@ -1,7 +1,7 @@
 //! Persisted settings and their migration path.
 //!
-//! ARCHITECTURE.md §11. Presets are keyed by `processName`, not `sessionId`, because they must
-//! survive an application restart and a `sessionId` does not (§6.2).
+//! Presets are keyed by `processName`, not `sessionId`, because they must survive an application
+//! restart and a `sessionId` does not — the OS issues a fresh one every time an app reopens.
 //!
 //! Migration preserves unknown keys. A user who downgrades and re-upgrades must not lose data
 //! written by the newer build, so migration edits the map it was given instead of rebuilding it
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(settings.hotkey, "Alt+Shift+M");
     }
 
-    /// §11: a downgrade must not destroy data. Keys the running build does not understand are
+    /// A downgrade must not destroy data. Keys the running build does not understand are
     /// carried across untouched.
     #[test]
     fn preserves_unknown_keys_across_migration() {
@@ -265,7 +265,7 @@ mod tests {
         assert_eq!(once, twice);
     }
 
-    /// §11: presets are keyed by processName, which survives a restart. A sessionId does not.
+    /// Presets are keyed by processName, which survives a restart. A sessionId does not.
     #[test]
     fn keys_presets_by_process_name() {
         let migrated = migrate(stored(json!({

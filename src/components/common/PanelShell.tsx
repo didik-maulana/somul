@@ -10,13 +10,13 @@ export interface PanelShellProps {
 }
 
 /**
- * DESIGN.md §9.1 — the tray panel root. Fixed 360×520, `radius-2xl`, `e4` + `panel-glass`.
+ * The tray panel root. Fixed 360×520, `radius-2xl`, `e4` elevation plus `panel-glass`.
  *
- * `panel-glass` is the only element in the app carrying `backdrop-filter` (§6). It tints the
+ * `panel-glass` is the only element in the app carrying `backdrop-filter`. It tints the
  * surface and blurs the panel's own stacked content; the real wallpaper blur comes from
  * `window-vibrancy` in the Rust layer. Nesting a second blur here would cost the 60 fps meter
- * budget, and the opaque fallback must stay legible on its own — contrast in §2.8 is measured
- * against opaque `popover`, never against the blur.
+ * budget, and the opaque fallback must stay legible on its own — every contrast ratio in the
+ * palette is measured against opaque `popover`, never against the blur.
  */
 export const PanelShell: React.FC<PanelShellProps> = ({
   header,

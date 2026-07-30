@@ -1,9 +1,10 @@
 //! CoreAudio adapter — master volume, mute, and device selection.
 //!
-//! ARCHITECTURE.md §2.2: CoreAudio has no equivalent of `ISimpleAudioVolume`, so no API sets
-//! another process's volume. Per-app control arrives in v1.2 through process taps, and §1.2
-//! makes building them now a scope violation. Every per-app method here returns
-//! [`AudioError::Unsupported`] carrying the reason the UI renders verbatim (§2.2.5).
+//! CoreAudio has no equivalent of Windows' `ISimpleAudioVolume`: no API sets another process's
+//! volume. Per-app control is achievable only through Core Audio process taps, which put the app
+//! inside the realtime render path and are deferred to a later release. Every per-app method
+//! here therefore returns [`AudioError::Unsupported`], carrying the reason the UI renders
+//! verbatim to the user.
 
 use std::ffi::c_void;
 use std::mem;
@@ -25,7 +26,7 @@ use super::{
     PlatformCapabilities, SessionId, SessionPeak,
 };
 
-/// Rendered verbatim in the macOS empty state (§2.2.5).
+/// Rendered verbatim by the UI in place of the session list.
 pub const UNSUPPORTED_REASON: &str = "macOS does not expose per-app volume control. \
 SOMUL controls the system output instead; per-app mixing arrives in v1.2 on macOS 14.4+.";
 
@@ -453,7 +454,8 @@ impl AudioBackend for MacOsAudioBackend {
 
         // CoreAudio returns noErr for a device the HAL will not actually adopt as the system
         // output — several virtual and driver-provided devices behave this way. Reporting
-        // success there would be the silent no-op §2.4 forbids, so the write is read back.
+        // success there would be a silent no-op — a control that reports working and does
+        // nothing — so the write is read back.
         if default_output_device()? == requested {
             return Ok(());
         }
@@ -472,9 +474,10 @@ impl AudioBackend for MacOsAudioBackend {
         Err(AudioError::Unsupported(PER_APP_ROUTING_REASON.to_owned()))
     }
 
-    /// There are no sessions on macOS in v1, so a tick carries no per-session peaks. The §2
-    /// master meter has no surface on the §2.4 trait, which only returns `SessionPeak` — see
-    /// DECISIONS.md D-003.
+    /// There are no sessions on macOS in v1, so a tick carries no per-session peaks.
+    ///
+    /// A device-level master meter has no surface on this trait, which reports peaks keyed by
+    /// session. Adding one would mean a new trait method and an output IOProc.
     fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError> {
         Ok(Vec::new())
     }
@@ -501,7 +504,7 @@ mod tests {
         assert!(!capabilities.has_per_app_routing);
     }
 
-    /// §2.2.5: the UI renders this verbatim in place of the session list.
+    /// The UI renders this verbatim in place of the session list.
     #[test]
     fn carries_the_reason_the_empty_state_renders() {
         let capabilities = MacOsAudioBackend::new().capabilities();
@@ -512,7 +515,7 @@ mod tests {
         );
     }
 
-    /// §2.4: never `Ok(())`, never an empty list — a silent no-op reaches the user as a control
+    /// Never `Ok(())`, never an empty list — a silent no-op reaches the user as a control
     /// that appears to work.
     #[test]
     fn refuses_every_per_app_operation_loudly() {

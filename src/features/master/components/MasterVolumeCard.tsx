@@ -8,16 +8,16 @@ export interface MasterVolumeCardProps {
   master: MasterState;
   onVolumeChange: (volume: number) => void;
   onVolumeCommit: (volume: number) => void;
-  /** Rendered to the right of the device name — the v1 output picker (§9.8). */
+  /** Rendered to the right of the device name — the output device picker. */
   deviceSelector?: React.ReactNode;
 }
 
 /**
- * DESIGN.md §9.3 — pinned above the scroll region at `e1`, `radius-lg`, 12 px padding.
+ * Pinned above the scroll region at `e1` elevation, `radius-lg`, 12 px padding.
  *
  * Its slider fill uses the signature gradient instead of flat `primary`. This is the one element
- * permitted to visually outrank the app rows, and one of only four places §12 allows the
- * gradient at all.
+ * permitted to visually outrank the app rows, and one of only three places the gradient is
+ * allowed at all.
  */
 export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
   master,

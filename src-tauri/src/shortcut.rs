@@ -1,7 +1,6 @@
 //! Global panel-toggle hotkey.
 //!
-//! ARCHITECTURE.md §8.3: registration can fail when another application already owns the
-//! combination. That is a normal outcome, not a fatal one — the app keeps running, surfaces a
+//! Registration can fail when another application already owns the combination. That is a normal outcome, not a fatal one — the app keeps running, surfaces a
 //! settings warning, and never retries in a loop.
 
 use std::sync::Mutex;
@@ -14,7 +13,7 @@ pub const DEFAULT_HOTKEY: &str = "CmdOrCtrl+Shift+V";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HotkeyStatus {
     Registered(String),
-    /// §8.3: surfaced as a settings warning. The app stays usable through the tray.
+    /// Surfaced as a settings warning. The app stays usable through the tray.
     Unavailable { accelerator: String, reason: String },
 }
 
@@ -123,7 +122,7 @@ mod tests {
         assert!(parse("Alt+Shift+M").is_ok());
     }
 
-    /// §8.3: a lost hotkey surfaces a warning and leaves the app running.
+    /// A lost hotkey surfaces a warning and leaves the app running.
     #[test]
     fn an_unavailable_hotkey_produces_a_settings_warning() {
         let status = HotkeyStatus::Unavailable {

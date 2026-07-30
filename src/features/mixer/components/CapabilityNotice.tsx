@@ -11,8 +11,7 @@ const FALLBACK_REASON =
   'Per-app volume control is not available on this system. The master output above still works.';
 
 /**
- * ARCHITECTURE.md §2.2.5 — what the panel renders in place of the session list when the platform
- * has no per-app control.
+ * What the panel renders in place of the session list when the platform has no per-app control.
  *
  * `unsupportedReason` is rendered **verbatim**. It is the backend's explanation of a platform
  * limit, and paraphrasing it here would let the UI and the adapter drift apart.

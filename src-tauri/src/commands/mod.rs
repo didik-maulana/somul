@@ -8,8 +8,8 @@ use std::sync::Arc;
 use crate::audio::AudioBackend;
 use crate::meter::MeterGate;
 
-/// The §7.1 command surface, declared once. `lib.rs` and the handler tests both expand this, so
-/// a command that reaches production unregistered cannot pass the suite.
+/// The whole command surface, declared once. `lib.rs` and the handler tests both expand this
+/// macro, so a command that reaches production unregistered cannot pass the test suite.
 #[macro_export]
 macro_rules! somul_command_handlers {
     () => {
@@ -31,8 +31,8 @@ macro_rules! somul_command_handlers {
 
 /// The adapter selected for this platform, plus the flag that gates the meter loop.
 ///
-/// ARCHITECTURE.md §5 keeps handlers thin: everything in `commands/` delegates here, and no
-/// audio logic lives above the [`AudioBackend`] boundary.
+/// Handlers stay thin: everything in `commands/` delegates here, and no audio logic lives above
+/// the [`AudioBackend`] boundary. That keeps each behaviour in exactly one place.
 pub struct AudioState {
     backend: Arc<dyn AudioBackend>,
     gate: Arc<MeterGate>,
@@ -40,8 +40,8 @@ pub struct AudioState {
 
 impl AudioState {
     /// The backend is shared rather than owned: the meter loop and the command layer must drive
-    /// the *same* adapter instance, or a WASAPI enumerator gets built twice and the two copies
-    /// drift apart.
+    /// the *same* adapter instance. Two owners would build two OS session enumerators, and their
+    /// views of which sessions exist would drift apart.
     pub fn new(backend: Arc<dyn AudioBackend>, gate: Arc<MeterGate>) -> Self {
         Self { backend, gate }
     }
@@ -54,7 +54,7 @@ impl AudioState {
         self.gate.is_visible()
     }
 
-    /// §4.1: flipping this to false stops the meter loop outright.
+    /// Flipping this to false stops the meter loop outright — see [`crate::meter`].
     pub fn set_panel_visible(&self, is_visible: bool) {
         self.gate.set_visible(is_visible);
     }

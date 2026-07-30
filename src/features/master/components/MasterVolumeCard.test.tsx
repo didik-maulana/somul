@@ -48,8 +48,8 @@ describe('MasterVolumeCard', () => {
   });
 
   /**
-   * DESIGN.md §9.3 and §12: the signature gradient on the master fill is the one element
-   * outranking the app rows, and one of only four permitted uses of the gradient.
+   * The signature gradient on the master fill is the one element outranking the app rows, and
+   * one of only three permitted uses of the gradient anywhere in the app.
    */
   it('fills its slider with the signature gradient rather than flat primary', () => {
     const { container } = render(

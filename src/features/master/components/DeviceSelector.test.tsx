@@ -43,7 +43,7 @@ describe('DeviceSelector', () => {
     expect(screen.getByText('USB Headphones')).toBeInTheDocument();
   });
 
-  /** DESIGN.md §9.8: the selected item is marked, not merely coloured. */
+  /** The selected item is marked for assistive tech, not merely coloured. */
   it('marks the current default', async () => {
     await open();
 

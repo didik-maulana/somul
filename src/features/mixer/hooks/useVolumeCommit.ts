@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 
-/** ARCHITECTURE.md §9: trailing debounce of 50 ms on the commit path. */
+/** Trailing debounce applied to the commit path. */
 export const VOLUME_COMMIT_DEBOUNCE_MS = 50;
 
 export interface VolumeCommit {
@@ -13,7 +13,7 @@ export interface VolumeCommit {
 /**
  * Debounces volume writes and guarantees a flush on release.
  *
- * ARCHITECTURE.md §9: a trailing debounce alone loses the final value when the user releases
+ * A trailing debounce alone loses the final value when the user releases
  * inside the window, which leaves the backend a few percent off where the thumb visibly sits.
  * `flush` cancels the pending timer and writes synchronously, so the last position always wins.
  */

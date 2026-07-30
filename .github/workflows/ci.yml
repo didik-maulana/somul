@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ARCHITECTURE.md §16: WebKitGTK, the tray indicator, and both Linux audio
+      # WebKitGTK, the tray indicator, and both Linux audio
       # backends are system packages — cargo cannot supply them.
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'

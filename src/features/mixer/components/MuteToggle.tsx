@@ -6,9 +6,9 @@ import { cn } from '@/lib/utils';
 
 export interface MuteToggleProps {
   isMuted: boolean;
-  /** Linear scalar 0.0–1.0 — picks the glyph below or above 50% (DESIGN.md §9.7). */
+  /** Linear scalar 0.0–1.0. Picks the loud or quiet glyph at the 50% mark. */
   volume: number;
-  /** The app this control belongs to. Names the button "Mute Spotify", not "Mute" (§11). */
+  /** The app this control belongs to. Names the button "Mute Spotify", not a bare "Mute". */
   appName: string;
   isDisabled?: boolean;
   onMuteToggle: () => void;
@@ -16,9 +16,9 @@ export interface MuteToggleProps {
 }
 
 /**
- * DESIGN.md §9.7 — a 28 px icon button at `radius-sm`.
+ * A 28 px icon button at `radius-sm`.
  *
- * The `aria-label` names the app rather than the bare action (§11): a screen-reader user moving
+ * The `aria-label` names the app rather than the bare action: a screen-reader user moving
  * through twelve rows hears twelve identical "Mute" buttons otherwise.
  */
 export const MuteToggle: React.FC<MuteToggleProps> = ({

@@ -1,8 +1,8 @@
 //! The 30 Hz peak loop — the only hot path in the application.
 //!
-//! ARCHITECTURE.md §4.1: while the panel is hidden the loop is **stopped, not throttled**. The
-//! thread blocks on a condvar, so a hidden panel costs zero backend calls and zero wakeups —
-//! which is what makes the §1 `< 0.1%` background CPU budget reachable rather than aspirational.
+//! While the panel is hidden the loop is **stopped, not throttled**. The thread blocks on a
+//! condvar, so a hidden panel costs zero backend calls and zero wakeups — which is what makes
+//! the background CPU budget reachable rather than aspirational.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -14,7 +14,7 @@ use crate::audio::{AudioBackend, SessionPeak};
 pub const METER_HZ: u32 = 30;
 pub const TICK: Duration = Duration::from_nanos(1_000_000_000 / METER_HZ as u64);
 
-/// §7.2. One batch per tick covering every session — never one emit per session.
+/// One batch per tick covering every session — never one emit per session.
 pub const PEAKS_EVENT: &str = "audio://peaks";
 
 /// Shared visibility flag. `set_panel_visibility` writes it; the loop blocks on it.
@@ -137,8 +137,8 @@ impl Drop for MeterLoop {
     }
 }
 
-/// Emits over the Tauri event channel. §4.1: one `audio://peaks` message per tick, carrying the
-/// whole batch — twelve sessions cost twelve floats in one message, not twelve messages.
+/// Emits over the Tauri event channel: one `audio://peaks` message per tick carrying the whole
+/// batch — twelve sessions cost twelve floats in one message, not twelve messages.
 pub struct EventPeakEmitter<R: tauri::Runtime> {
     app: tauri::AppHandle<R>,
 }
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(TICK, Duration::from_nanos(33_333_333));
     }
 
-    /// §4.1: hidden means stopped, not throttled. This is the CPU budget's enforcement point.
+    /// Hidden means stopped, not throttled. This is the CPU budget's enforcement point.
     #[test]
     fn makes_zero_backend_calls_while_the_panel_is_hidden() {
         let harness = start();
@@ -304,11 +304,11 @@ mod tests {
         assert_eq!(
             harness.backend.reads(),
             0,
-            "the meter loop read the backend while the panel was hidden (§4.1)"
+            "the meter loop read the backend while the panel was hidden"
         );
         assert!(
             harness.emitter.batches().is_empty(),
-            "the meter loop emitted while the panel was hidden (§4.1)"
+            "the meter loop emitted while the panel was hidden"
         );
     }
 
@@ -329,7 +329,7 @@ mod tests {
         );
     }
 
-    /// §4.1: twelve sessions cost twelve floats in one message, not twelve messages.
+    /// Twelve sessions cost twelve floats in one message, not twelve messages.
     #[test]
     fn emits_one_batch_per_tick_covering_every_session() {
         let harness = start();
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(
             harness.backend.reads(),
             settled,
-            "the loop kept reading after the panel was hidden (§4.1)"
+            "the loop kept reading after the panel was hidden"
         );
     }
 

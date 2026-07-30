@@ -12,9 +12,9 @@ export interface DeviceSelectorProps {
 }
 
 /**
- * DESIGN.md §9.8 — a Radix Popover at `e3`.
+ * A Radix Popover at `e3` elevation.
  *
- * v1 selects the **default output device** only. Per-session routing is v1.1 (§1.2), so there is
+ * v1 selects the **default output device** only. Per-session routing is v1.1, so there is
  * deliberately no per-row variant of this control: building UI for an unshipped capability is
  * how a panel ends up with a picker that cannot route anything.
  */

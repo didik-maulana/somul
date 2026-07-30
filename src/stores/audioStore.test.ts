@@ -54,9 +54,8 @@ describe('audioStore', () => {
   });
 
   /**
-   * ARCHITECTURE.md §9, and GOAL.md §7.3's refutation target for this task. The assertion is
-   * written so that deleting the merge rule makes it fail: `mergeSessions` would return the
-   * incoming 0.2 and the drag would visibly stutter backwards.
+   * Written so that deleting the merge rule makes it fail: `mergeSessions` would return the
+   * incoming 0.2 and the drag would visibly stutter backwards under the user's finger.
    */
   it('does not let an incoming event overwrite the volume of a dragging session', () => {
     const { replaceSessions, startDragging, setSessionVolume } = useAudioStore.getState();
@@ -130,7 +129,7 @@ describe('audioStore', () => {
     expect(sessions.find((each) => each.sessionId === chrome)?.volume).toBe(0.7);
   });
 
-  /** §9: peaks never enter the store. */
+  /** Peaks never enter the store — they would re-render every subscriber 30 times a second. */
   it('has no peak field anywhere in its state', () => {
     const keys = Object.keys(useAudioStore.getState());
 

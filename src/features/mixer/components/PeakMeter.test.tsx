@@ -71,7 +71,7 @@ afterEach(() => {
 const fillOf = (index = 0): HTMLElement => screen.getAllByTestId('peak-meter-fill')[index];
 
 describe('PeakMeter', () => {
-  /** DESIGN.md §11: the meter is decorative; the dB readout is the accessible channel. */
+  /** The meter is decorative; the dB readout is the accessible channel. */
   it('is hidden from assistive technology', () => {
     render(<Harness sessions={[sessionId]} />);
 
@@ -84,7 +84,7 @@ describe('PeakMeter', () => {
     expect(fillOf()).toHaveClass('scale-x-0');
   });
 
-  /** DESIGN.md §9.6 and §12: scaleX only — never a width write. */
+  /** scaleX only — a width write would trigger layout on every frame. */
   it('drives the fill with transform: scaleX', () => {
     render(<Harness sessions={[sessionId]} />);
 
@@ -97,7 +97,7 @@ describe('PeakMeter', () => {
     expect(fill.style.width).toBe('');
   });
 
-  /** DESIGN.md §7: a CSS transition would smear the signal. */
+  /** A CSS transition would smear the signal, so the fill carries none. */
   it('carries no CSS transition on the fill', () => {
     render(<Harness sessions={[sessionId]} />);
 
@@ -120,7 +120,7 @@ describe('PeakMeter', () => {
     expect(decayed).toBeGreaterThan(0);
   });
 
-  /** DESIGN.md §9.6: band colour is data-driven so the theme swap needs no JS. */
+  /** Band colour is data-driven, so the light/dark swap needs no JavaScript. */
   it('reports the band as a data attribute rather than a hardcoded colour', () => {
     render(<Harness sessions={[sessionId]} />);
 
@@ -136,8 +136,8 @@ describe('PeakMeter', () => {
 
 describe('usePeakStream', () => {
   /**
-   * ARCHITECTURE.md §9 and GOAL.md §7.3: the highest-value refutation for this task is peaks
-   * leaking into React state. If they had, the component would re-render on every frame.
+   * The failure this guards against: peaks leaking into React state. If they had, the component
+   * would re-render on every frame — thirty times a second, per row.
    */
   it('never re-renders a row on a peak update', () => {
     const renderSpy = vi.fn();
@@ -163,7 +163,7 @@ describe('usePeakStream', () => {
     expect(renderSpy).toHaveBeenCalledTimes(rendersAfterMount);
   });
 
-  /** DESIGN.md §9.6: one loop for the whole panel, not one timer per row. */
+  /** One loop for the whole panel, not one timer per row. */
   it('runs a single rAF loop no matter how many rows are mounted', () => {
     const sessions = ['a:1', 'b:2', 'c:3', 'd:4'] as SessionId[];
 

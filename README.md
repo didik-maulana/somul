@@ -13,13 +13,8 @@
 
 **SOMUL** (**So**und **Mul**tiplexer) is a modern, privacy-first, cross-platform desktop application designed to give you total control over your computer's audio.
 
-Documentation map:
-
-| Document | Owns |
-| :--- | :--- |
-| [ARCHITECTURE.md](ARCHITECTURE.md) | Platform limits, IPC contract, data model, coding standards |
-| [DESIGN.md](DESIGN.md) | Design tokens, component anatomy, motion, accessibility |
-| [GOAL.md](GOAL.md) | Build plan, task catalog, and agent execution protocol |
+Contributing? Start with [CONTRIBUTING.md](CONTRIBUTING.md) — it covers the code documentation
+rules and the checks a pull request has to pass.
 
 ---
 
@@ -45,7 +40,11 @@ Per-app audio control is not equally available on every OS. SOMUL degrades hones
 | **macOS** 14.4+ | ⚠️ v1.2 | Core Audio process taps + audio-capture consent |
 | **macOS** ≤ 14.3 | ❌ | Process tap API unavailable; master volume and metering only |
 
-macOS ships master volume and metering in v1, with per-app control landing in v1.2 via Core Audio process taps — the same approach used by [SonicFlow](https://github.com/altuzar/sonicflow) and [FineTune](https://github.com/ronitsingh10/FineTune). See [ARCHITECTURE.md §2.2](ARCHITECTURE.md) for the mechanism and its constraints.
+macOS ships master volume in v1. Core Audio has no equivalent of Windows' `ISimpleAudioVolume`,
+so per-app control needs Core Audio process taps — the approach used by
+[SonicFlow](https://github.com/altuzar/sonicflow) and
+[FineTune](https://github.com/ronitsingh10/FineTune). Taps put the app inside the realtime render
+path and require a stable code-signing identity, which is why they land in v1.2 rather than v1.
 
 ---
 
