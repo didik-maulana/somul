@@ -6,9 +6,11 @@
 //! open a normal decorated window.
 
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
-use tauri::tray::{TrayIconBuilder, TrayIconEvent};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, Runtime, WebviewWindow, WindowEvent};
 use tauri_plugin_positioner::{Position, WindowExt};
 
@@ -16,17 +18,49 @@ use crate::commands::AudioState;
 
 const TOGGLE_ITEM_ID: &str = "toggle-panel";
 
+/// Clicking the tray while the panel is open takes focus away from it first, so the §8.2
+/// focus-loss rule hides the panel *before* the click event arrives. A toggle would then see a
+/// hidden panel and reopen it, and the panel could never be dismissed from the tray.
+///
+/// Within this window, a toggle treats the panel as still open and leaves it closed.
+const FOCUS_HIDE_GRACE: Duration = Duration::from_millis(300);
+
 /// §8.2: the panel hides on focus loss unless the user pinned it.
 #[derive(Default)]
-pub struct PanelPin(AtomicBool);
+pub struct PanelPin {
+    is_pinned: AtomicBool,
+    last_focus_hide: Mutex<Option<Instant>>,
+}
 
 impl PanelPin {
     pub fn is_pinned(&self) -> bool {
-        self.0.load(Ordering::Acquire)
+        self.is_pinned.load(Ordering::Acquire)
     }
 
     pub fn set_pinned(&self, is_pinned: bool) {
-        self.0.store(is_pinned, Ordering::Release);
+        self.is_pinned.store(is_pinned, Ordering::Release);
+    }
+
+    fn guard(&self) -> std::sync::MutexGuard<'_, Option<Instant>> {
+        self.last_focus_hide
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn record_focus_hide(&self) {
+        *self.guard() = Some(Instant::now());
+    }
+
+    /// True when a focus-loss hide just fired — i.e. this click is a dismiss, not a reopen.
+    fn has_just_hidden_on_focus_loss(&self) -> bool {
+        let mut last = self.guard();
+
+        let is_recent = last.is_some_and(|at| at.elapsed() < FOCUS_HIDE_GRACE);
+
+        // Consumed either way: a stale timestamp must not suppress the next genuine open.
+        *last = None;
+
+        is_recent
     }
 }
 
@@ -54,7 +88,15 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> bool {
             // tray rectangle to anchor against and silently falls back to the screen center.
             tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
 
-            if let TrayIconEvent::Click { .. } = event {
+            // `Click` fires twice per click — once for Down, once for Up. Matching the variant
+            // alone toggles the panel open on press and shut again on release, so it only
+            // appeared to work while the button was held.
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
                 toggle_panel(tray.app_handle());
             }
         })
@@ -85,9 +127,13 @@ pub fn toggle_panel<R: Runtime>(app: &AppHandle<R>) {
         return;
     };
 
+    let was_dismissed_by_this_click = app
+        .try_state::<PanelPin>()
+        .is_some_and(|pin| pin.has_just_hidden_on_focus_loss());
+
     if panel.is_visible().unwrap_or(false) {
         hide_panel(&panel);
-    } else {
+    } else if !was_dismissed_by_this_click {
         show_panel(&panel);
     }
 }
@@ -122,19 +168,76 @@ pub fn handle_window_event<R: Runtime>(panel: &WebviewWindow<R>, event: &WindowE
         return;
     };
 
-    let is_pinned = panel
-        .app_handle()
-        .try_state::<PanelPin>()
-        .is_some_and(|pin| pin.is_pinned());
+    let Some(pin) = panel.app_handle().try_state::<PanelPin>() else {
+        return;
+    };
 
-    if !is_pinned {
-        hide_panel(panel);
+    if pin.is_pinned() {
+        return;
     }
+
+    // Stamped before hiding so a tray click arriving right after can tell "the user dismissed
+    // this" from "the user wants it open".
+    pin.record_focus_hide();
+    hide_panel(panel);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A quick click delivers Down and Up. Toggling on both opens the panel on press and shuts
+    /// it on release, which is why the panel only stayed up while the button was held.
+    #[test]
+    fn only_the_button_release_counts_as_a_click() {
+        let is_toggle = |button: MouseButton, button_state: MouseButtonState| {
+            matches!(
+                (button, button_state),
+                (MouseButton::Left, MouseButtonState::Up)
+            )
+        };
+
+        assert!(is_toggle(MouseButton::Left, MouseButtonState::Up));
+        assert!(!is_toggle(MouseButton::Left, MouseButtonState::Down));
+        assert!(!is_toggle(MouseButton::Right, MouseButtonState::Up));
+        assert!(!is_toggle(MouseButton::Middle, MouseButtonState::Up));
+    }
+
+    /// Clicking the tray with the panel open hides it via focus loss first; the toggle must read
+    /// that as a dismiss rather than reopening a panel the user just closed.
+    #[test]
+    fn a_focus_loss_hide_suppresses_the_reopen_that_follows_it() {
+        let pin = PanelPin::default();
+
+        pin.record_focus_hide();
+
+        assert!(pin.has_just_hidden_on_focus_loss());
+    }
+
+    /// One suppression per hide — otherwise the tray icon stops opening the panel entirely.
+    #[test]
+    fn the_suppression_is_consumed_by_the_first_click() {
+        let pin = PanelPin::default();
+
+        pin.record_focus_hide();
+
+        assert!(pin.has_just_hidden_on_focus_loss());
+        assert!(!pin.has_just_hidden_on_focus_loss());
+    }
+
+    #[test]
+    fn a_click_with_no_preceding_focus_hide_opens_the_panel() {
+        assert!(!PanelPin::default().has_just_hidden_on_focus_loss());
+    }
+
+    #[test]
+    fn a_stale_focus_hide_no_longer_suppresses_the_open() {
+        let pin = PanelPin::default();
+
+        *pin.guard() = Some(Instant::now() - FOCUS_HIDE_GRACE - Duration::from_millis(50));
+
+        assert!(!pin.has_just_hidden_on_focus_loss());
+    }
 
     #[test]
     fn starts_unpinned_so_focus_loss_hides_the_panel() {
