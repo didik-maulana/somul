@@ -11,7 +11,8 @@ use std::mem;
 use std::ptr;
 
 use coreaudio_sys::{
-    kAudioDevicePropertyDeviceNameCFString, kAudioDevicePropertyMute,
+    kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioDevicePropertyDeviceNameCFString,
+    kAudioDevicePropertyMute,
     kAudioDevicePropertyStreamConfiguration, kAudioDevicePropertyVolumeScalar,
     kAudioHardwareNoError, kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal,
@@ -236,6 +237,26 @@ fn has_output_streams(device: AudioDeviceID) -> bool {
     list.mNumberBuffers > 0
 }
 
+/// Whether the OS will actually adopt this device as the system output.
+///
+/// Some virtual devices publish output streams but refuse to become the default — Microsoft
+/// Teams and Zoom both install one. Listing them offers the user a choice that silently does
+/// nothing when picked.
+///
+/// A device whose eligibility cannot be read is kept. Failing open means an unusual but working
+/// device stays selectable; failing closed could hide the user's only speakers.
+fn can_be_default_output(device: AudioDeviceID) -> bool {
+    let address = address(
+        kAudioDevicePropertyDeviceCanBeDefaultDevice,
+        kAudioObjectPropertyScopeOutput,
+        kAudioObjectPropertyElementMain,
+    );
+
+    read_property::<u32>(device, &address, "reading default-output eligibility")
+        .map(|is_eligible| is_eligible != 0)
+        .unwrap_or(true)
+}
+
 fn output_device_ids() -> Result<Vec<AudioDeviceID>, AudioError> {
     let address = address(
         kAudioHardwarePropertyDevices,
@@ -277,7 +298,10 @@ fn output_device_ids() -> Result<Vec<AudioDeviceID>, AudioError> {
     };
     check(status, "reading the device list")?;
 
-    Ok(devices.into_iter().filter(|id| has_output_streams(*id)).collect())
+    Ok(devices
+        .into_iter()
+        .filter(|id| has_output_streams(*id) && can_be_default_output(*id))
+        .collect())
 }
 
 /// Most output devices expose no settable master element, so the master element is tried first
