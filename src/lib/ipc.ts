@@ -184,6 +184,15 @@ export const updateSettings = (settings: AppSettings): Promise<SettingsUpdate> =
 export const setHotkeyCapture = (isCapturing: boolean): Promise<void> =>
   mutation('set_hotkey_capture', { isCapturing });
 
+/**
+ * Matches the window's appearance to the resolved theme.
+ *
+ * The blur behind the panel follows the window's appearance rather than the CSS, so forcing a
+ * theme has to reach the native window too or the surface stays on the other one.
+ */
+export const setPanelAppearance = (isDark: boolean): Promise<void> =>
+  mutation('set_panel_appearance', { isDark });
+
 export const AUDIO_EVENT = {
   peaks: 'audio://peaks',
   sessionsChanged: 'audio://sessions-changed',

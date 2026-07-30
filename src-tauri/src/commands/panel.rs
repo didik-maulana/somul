@@ -21,3 +21,21 @@ pub fn set_panel_pinned<R: Runtime>(window: Window<R>, is_pinned: bool) {
         state.set_pinned(is_pinned);
     }
 }
+
+/// Matches the window's own appearance to the resolved theme.
+///
+/// The vibrancy material behind the panel follows the window appearance, not the CSS, so without
+/// this a user who forces light while macOS is dark gets light content on a dark blur.
+#[tauri::command]
+pub fn set_panel_appearance<R: Runtime>(window: Window<R>, is_dark: bool) {
+    #[cfg(target_os = "macos")]
+    if let Some(panel) = window.app_handle().get_webview_window(crate::PANEL_LABEL) {
+        crate::set_macos_appearance(&panel, is_dark);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        let _ = is_dark;
+    }
+}

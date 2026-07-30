@@ -1,3 +1,4 @@
+import { setPanelAppearance } from '@/lib/ipc';
 import type { Theme } from '@/types/ipc';
 
 const DARK_QUERY = '(prefers-color-scheme: dark)';
@@ -9,8 +10,23 @@ const prefersDark = (): boolean => window.matchMedia(DARK_QUERY).matches;
 
 const resolve = (): boolean => (preference === 'system' ? prefersDark() : preference === 'dark');
 
+/** Tracks the last value pushed to the window, so an unchanged theme costs no IPC. */
+let lastAppliedIsDark: boolean | null = null;
+
 const apply = (): void => {
-  document.documentElement.classList.toggle('dark', resolve());
+  const isDark = resolve();
+
+  document.documentElement.classList.toggle('dark', isDark);
+
+  if (isDark === lastAppliedIsDark) {
+    return;
+  }
+
+  lastAppliedIsDark = isDark;
+
+  // The blur behind the panel follows the *window's* appearance, not the CSS. Forcing light
+  // while macOS is dark would otherwise leave light content sitting on a dark surface.
+  void setPanelAppearance(isDark).catch(() => undefined);
 };
 
 /**

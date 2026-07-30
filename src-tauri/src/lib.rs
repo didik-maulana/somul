@@ -151,9 +151,11 @@ fn build_panel(app: &AppHandle, has_tray: bool) -> tauri::Result<WebviewWindow> 
 fn apply_surface_blur(panel: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     {
+        // `Popover` follows the system appearance; `HudWindow` is a permanently dark HUD
+        // material, which is why the light theme came out grey no matter what the palette said.
         let _ = window_vibrancy::apply_vibrancy(
             panel,
-            window_vibrancy::NSVisualEffectMaterial::HudWindow,
+            window_vibrancy::NSVisualEffectMaterial::Popover,
             None,
             Some(PANEL_RADIUS),
         );
@@ -206,6 +208,35 @@ fn round_macos_window_corners(panel: &WebviewWindow) {
 
     // The shadow is cached from the old square path and would otherwise outline the corners.
     window.invalidateShadow();
+}
+
+/// Points the window's own appearance at light or dark.
+///
+/// The vibrancy material follows the *window's* appearance, not the app's CSS. Without this a
+/// user who forces light while macOS is dark gets light content on a dark blur — the theme
+/// override would apply to everything except the surface behind it.
+#[cfg(target_os = "macos")]
+pub fn set_macos_appearance<R: tauri::Runtime>(panel: &WebviewWindow<R>, is_dark: bool) {
+    use objc2_app_kit::{
+        NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
+        NSWindow,
+    };
+
+    let Ok(handle) = panel.ns_window() else {
+        return;
+    };
+
+    // SAFETY: `ns_window` hands back the panel's live `NSWindow`, which Tauri keeps alive for as
+    // long as the window exists, and this runs on the main thread via the command handler.
+    let window: &NSWindow = unsafe { &*handle.cast::<NSWindow>() };
+
+    let name = if is_dark {
+        unsafe { NSAppearanceNameDarkAqua }
+    } else {
+        unsafe { NSAppearanceNameAqua }
+    };
+
+    window.setAppearance(NSAppearance::appearanceNamed(name).as_deref());
 }
 
 #[cfg(desktop)]
