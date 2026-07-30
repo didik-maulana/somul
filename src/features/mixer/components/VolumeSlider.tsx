@@ -99,7 +99,7 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
         '[&_[data-slot=slider-thumb]]:transition-[transform,box-shadow] [&_[data-slot=slider-thumb]]:duration-[140ms]',
         '[&_[data-slot=slider-thumb]]:hover:scale-[1.143]',
         '[&_[data-slot=slider-thumb]]:active:scale-[1.15] [&_[data-slot=slider-thumb]]:active:ring-6 [&_[data-slot=slider-thumb]]:active:ring-ring/16',
-        '[&_[data-slot=slider-thumb]]:focus-visible:ring-2 [&_[data-slot=slider-thumb]]:focus-visible:ring-ring [&_[data-slot=slider-thumb]]:focus-visible:ring-offset-2 [&_[data-slot=slider-thumb]]:focus-visible:ring-offset-popover',
+        '[&_[data-slot=slider-thumb]]:focus-visible:ring-2 [&_[data-slot=slider-thumb]]:focus-visible:ring-ring [&_[data-slot=slider-thumb]]:focus-visible:ring-offset-2 [&_[data-slot=slider-thumb]]:focus-visible:ring-offset-background',
         className,
       )}
     />

@@ -37,7 +37,7 @@ const TOKENS = {
     ring: "#4274d9",
   },
   light: {
-    background: "#f7f8fa",
+    background: "#eff1f5",
     foreground: "#12151b",
     card: "#ffffff",
     popover: "#ffffff",

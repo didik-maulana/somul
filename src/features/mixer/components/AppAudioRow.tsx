@@ -70,7 +70,10 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
         'group flex items-center gap-3 rounded-lg border border-transparent px-2 transition-colors duration-[140ms] ease-[var(--ease-standard)]',
         peakStream ? 'h-16' : 'h-13',
         'hover:bg-accent hover:border-border',
-        'focus-within:ring-ring focus-within:ring-offset-popover focus-within:ring-2 focus-within:ring-offset-2',
+        // Offset against `background`, the panel's own surface. Offsetting to `popover` would
+        // paint a wrong-coloured halo, since popover is now reserved for things floating above
+        // the panel rather than the panel itself.
+        'focus-within:ring-ring focus-within:ring-offset-background focus-within:ring-2 focus-within:ring-offset-2',
         isDragging && 'bg-card border-border shadow-e2',
         isExpired && 'pointer-events-none opacity-50',
       )}

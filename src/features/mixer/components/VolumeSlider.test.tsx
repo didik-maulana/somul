@@ -137,7 +137,7 @@ describe('VolumeSlider', () => {
     );
 
     expect(container.firstElementChild).toHaveClass(
-      '[&_[data-slot=slider-thumb]]:focus-visible:ring-offset-popover',
+      '[&_[data-slot=slider-thumb]]:focus-visible:ring-offset-background',
     );
   });
 

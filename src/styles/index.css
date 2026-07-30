@@ -95,7 +95,9 @@
 }
 
 :root {
-  --background: #f7f8fa;
+  /* neutral-100 rather than neutral-50: white cards need something to sit on. Text still clears
+     AA against it — foreground 16.17:1, muted-foreground 5.07:1. */
+  --background: #eff1f5;
   --foreground: #12151b;
   --card: #ffffff;
   --card-foreground: #12151b;
@@ -244,13 +246,17 @@
 }
 
 @utility panel-glass {
-  background: color-mix(in srgb, var(--popover) 82%, transparent);
+  /* Built on `background`, not `popover`. Sharing `popover` with the panel made a white card sit
+     on a white panel at 1.00:1 in light theme — the card vanished into the surface. Keeping the
+     two tokens distinct also leaves `popover` free to mean "floats above the panel", which is
+     what the device dropdown needs. */
+  background: color-mix(in srgb, var(--background) 82%, transparent);
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   backdrop-filter: blur(24px) saturate(160%);
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
 
   @media (prefers-reduced-transparency: reduce) {
-    background: var(--popover);
+    background: var(--background);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }

@@ -110,7 +110,7 @@ describe('AppAudioRow', () => {
         'focus-within:ring-2',
         'focus-within:ring-ring',
         'focus-within:ring-offset-2',
-        'focus-within:ring-offset-popover',
+        'focus-within:ring-offset-background',
       );
     });
 
