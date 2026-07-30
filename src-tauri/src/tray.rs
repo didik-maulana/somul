@@ -25,14 +25,21 @@ const TOGGLE_ITEM_ID: &str = "toggle-panel";
 /// Within this window, a toggle treats the panel as still open and leaves it closed.
 const FOCUS_HIDE_GRACE: Duration = Duration::from_millis(300);
 
-/// §8.2: the panel hides on focus loss unless the user pinned it.
+/// Showing the panel while another application is frontmost takes a moment to become key, and
+/// macOS delivers a spurious `Focused(false)` in the gap. Hiding on that would make the panel
+/// openable only from the desktop — every click from inside another app would flash and vanish.
+const SHOW_SETTLE: Duration = Duration::from_millis(400);
+
+/// Panel interaction state: the §8.2 pin, plus the timestamps that keep show and hide from
+/// fighting each other.
 #[derive(Default)]
-pub struct PanelPin {
+pub struct PanelState {
     is_pinned: AtomicBool,
     last_focus_hide: Mutex<Option<Instant>>,
+    last_shown: Mutex<Option<Instant>>,
 }
 
-impl PanelPin {
+impl PanelState {
     pub fn is_pinned(&self) -> bool {
         self.is_pinned.load(Ordering::Acquire)
     }
@@ -45,6 +52,22 @@ impl PanelPin {
         self.last_focus_hide
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn shown_guard(&self) -> std::sync::MutexGuard<'_, Option<Instant>> {
+        self.last_shown
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn record_shown(&self) {
+        *self.shown_guard() = Some(Instant::now());
+    }
+
+    /// True while the panel is still settling into key focus after being shown.
+    fn is_settling(&self) -> bool {
+        self.shown_guard()
+            .is_some_and(|at| at.elapsed() < SHOW_SETTLE)
     }
 
     fn record_focus_hide(&self) {
@@ -128,7 +151,7 @@ pub fn toggle_panel<R: Runtime>(app: &AppHandle<R>) {
     };
 
     let was_dismissed_by_this_click = app
-        .try_state::<PanelPin>()
+        .try_state::<PanelState>()
         .is_some_and(|pin| pin.has_just_hidden_on_focus_loss());
 
     if panel.is_visible().unwrap_or(false) {
@@ -139,13 +162,19 @@ pub fn toggle_panel<R: Runtime>(app: &AppHandle<R>) {
 }
 
 pub fn show_panel<R: Runtime>(panel: &WebviewWindow<R>) {
+    let app = panel.app_handle();
+
+    if let Some(state) = app.try_state::<PanelState>() {
+        state.record_shown();
+    }
+
     // §8.2: the constrained variant clamps to screen bounds, which is what keeps the panel
     // on-screen with a multi-monitor layout or a tray near a display edge.
     let _ = panel.move_window_constrained(Position::TrayBottomCenter);
     let _ = panel.show();
     let _ = panel.set_focus();
 
-    set_panel_visibility(panel.app_handle(), true);
+    set_panel_visibility(app, true);
 }
 
 pub fn hide_panel<R: Runtime>(panel: &WebviewWindow<R>) {
@@ -168,17 +197,24 @@ pub fn handle_window_event<R: Runtime>(panel: &WebviewWindow<R>, event: &WindowE
         return;
     };
 
-    let Some(pin) = panel.app_handle().try_state::<PanelPin>() else {
+    let Some(state) = panel.app_handle().try_state::<PanelState>() else {
         return;
     };
 
-    if pin.is_pinned() {
+    if state.is_pinned() {
+        return;
+    }
+
+    // Opening over another application does not make the panel key immediately, and macOS
+    // reports a `Focused(false)` in that gap. Acting on it would hide the panel the instant it
+    // appeared — which is exactly the "only opens from the desktop" symptom.
+    if state.is_settling() {
         return;
     }
 
     // Stamped before hiding so a tray click arriving right after can tell "the user dismissed
     // this" from "the user wants it open".
-    pin.record_focus_hide();
+    state.record_focus_hide();
     hide_panel(panel);
 }
 
@@ -207,7 +243,7 @@ mod tests {
     /// that as a dismiss rather than reopening a panel the user just closed.
     #[test]
     fn a_focus_loss_hide_suppresses_the_reopen_that_follows_it() {
-        let pin = PanelPin::default();
+        let pin = PanelState::default();
 
         pin.record_focus_hide();
 
@@ -217,7 +253,7 @@ mod tests {
     /// One suppression per hide — otherwise the tray icon stops opening the panel entirely.
     #[test]
     fn the_suppression_is_consumed_by_the_first_click() {
-        let pin = PanelPin::default();
+        let pin = PanelState::default();
 
         pin.record_focus_hide();
 
@@ -227,26 +263,52 @@ mod tests {
 
     #[test]
     fn a_click_with_no_preceding_focus_hide_opens_the_panel() {
-        assert!(!PanelPin::default().has_just_hidden_on_focus_loss());
+        assert!(!PanelState::default().has_just_hidden_on_focus_loss());
     }
 
     #[test]
     fn a_stale_focus_hide_no_longer_suppresses_the_open() {
-        let pin = PanelPin::default();
+        let pin = PanelState::default();
 
         *pin.guard() = Some(Instant::now() - FOCUS_HIDE_GRACE - Duration::from_millis(50));
 
         assert!(!pin.has_just_hidden_on_focus_loss());
     }
 
+    /// Opening over another app does not make the panel key at once, and macOS reports a
+    /// `Focused(false)` in the gap. Hiding on that is the "only opens from the desktop" bug.
+    #[test]
+    fn a_freshly_shown_panel_ignores_the_focus_loss_that_follows_it() {
+        let state = PanelState::default();
+
+        state.record_shown();
+
+        assert!(state.is_settling());
+    }
+
+    #[test]
+    fn a_panel_that_was_never_shown_is_not_settling() {
+        assert!(!PanelState::default().is_settling());
+    }
+
+    /// The window is bounded — a genuine click-away after it elapses must still dismiss.
+    #[test]
+    fn focus_loss_hides_the_panel_once_it_has_settled() {
+        let state = PanelState::default();
+
+        *state.shown_guard() = Some(Instant::now() - SHOW_SETTLE - Duration::from_millis(50));
+
+        assert!(!state.is_settling());
+    }
+
     #[test]
     fn starts_unpinned_so_focus_loss_hides_the_panel() {
-        assert!(!PanelPin::default().is_pinned());
+        assert!(!PanelState::default().is_pinned());
     }
 
     #[test]
     fn tracks_the_pin_toggle() {
-        let pin = PanelPin::default();
+        let pin = PanelState::default();
 
         pin.set_pinned(true);
         assert!(pin.is_pinned());

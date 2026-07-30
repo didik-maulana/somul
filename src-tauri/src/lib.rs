@@ -10,7 +10,7 @@ pub mod tray;
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
-use crate::tray::PanelPin;
+use crate::tray::PanelState;
 
 /// Selects the adapter for the build target (§4).
 ///
@@ -58,9 +58,16 @@ pub fn run() {
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(somul_command_handlers!())
-        .manage(PanelPin::default())
+        .manage(PanelState::default())
         .manage(shortcut::HotkeyState::default())
         .setup(|app| {
+            // §8.1/§8.2: a tray-first panel is an accessory, not a Dock application. As a
+            // Regular app the panel cannot take key focus over whatever is frontmost, so
+            // clicking the tray from inside another app opened nothing. Accessory is also the
+            // macOS counterpart to `skipTaskbar`, which is Windows/Linux only.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
             // One adapter instance, shared by the command layer and the meter loop. Two would
             // mean two OS enumerators whose views drift apart.
             let backend = platform_backend();
