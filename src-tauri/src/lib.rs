@@ -1,6 +1,7 @@
 #![deny(clippy::all)]
 
 pub mod audio;
+pub mod commands;
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
@@ -28,6 +29,7 @@ pub fn run() {
     builder
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        .invoke_handler(somul_command_handlers!())
         .setup(|app| {
             build_panel(app.handle())?;
             Ok(())
