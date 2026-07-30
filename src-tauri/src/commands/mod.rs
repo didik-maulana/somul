@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod panel;
+pub mod settings;
 #[cfg(test)]
 mod tests;
 
@@ -26,6 +27,9 @@ macro_rules! somul_command_handlers {
             $crate::commands::audio::set_session_output_device,
             $crate::commands::panel::set_panel_visibility,
             $crate::commands::panel::set_panel_pinned,
+            $crate::commands::settings::get_settings,
+            $crate::commands::settings::update_settings,
+            $crate::commands::settings::set_hotkey_capture,
         ]
     };
 }

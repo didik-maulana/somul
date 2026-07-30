@@ -11,6 +11,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use tauri::{AppHandle, Runtime};
+use tauri_plugin_store::StoreExt;
 
 use crate::shortcut::DEFAULT_HOTKEY;
 
@@ -149,6 +151,37 @@ fn scalar_map(value: Option<&Value>) -> BTreeMap<String, f32> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+/// Reads settings off disk, migrating whatever version is there.
+///
+/// A store that cannot be opened yields defaults rather than an error: the panel must still open
+/// on a fresh install, or on a machine where the config directory is not writable.
+pub fn load<R: Runtime>(app: &AppHandle<R>) -> AppSettings {
+    let Ok(store) = app.store(SETTINGS_FILE) else {
+        return AppSettings::default();
+    };
+
+    let stored: Map<String, Value> = store.entries().into_iter().collect();
+
+    from_stored(&migrate(stored))
+}
+
+/// Writes settings back, preserving any key this build does not understand.
+///
+/// The stored map is migrated first so unknown keys survive the round trip — writing the struct
+/// alone would silently drop anything a newer build had written.
+pub fn save<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> Result<(), String> {
+    let store = app.store(SETTINGS_FILE).map_err(|error| error.to_string())?;
+
+    let mut merged: Map<String, Value> = migrate(store.entries().into_iter().collect());
+    merged.extend(to_stored(settings));
+
+    for (key, value) in merged {
+        store.set(key, value);
+    }
+
+    store.save().map_err(|error| error.to_string())
 }
 
 pub fn to_stored(settings: &AppSettings) -> Map<String, Value> {

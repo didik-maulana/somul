@@ -1,20 +1,21 @@
-import { useCallback, type FC } from 'react';
+import { useCallback, useState, type FC } from "react";
 
-import { PanelFooter } from '@/components/common/PanelFooter';
-import { PanelHeader } from '@/components/common/PanelHeader';
-import { PanelShell } from '@/components/common/PanelShell';
-import { DeviceSelector } from '@/features/master/components/DeviceSelector';
-import { MasterVolumeCard } from '@/features/master/components/MasterVolumeCard';
-import { useMasterVolume } from '@/features/master/hooks/useMasterVolume';
-import { useOutputDevices } from '@/features/master/hooks/useOutputDevices';
-import { MixerList } from '@/features/mixer/components/MixerList';
-import { useAudioSessions } from '@/features/mixer/hooks/useAudioSessions';
-import { usePeakStream } from '@/features/mixer/hooks/usePeakStream';
-import { useVolumeCommit } from '@/features/mixer/hooks/useVolumeCommit';
-import { setPanelPinned as setPanelPinnedOnBackend } from '@/lib/ipc';
-import { useAudioStore } from '@/stores/audioStore';
-import { useSettingsStore } from '@/stores/settingsStore';
-import type { AudioSession } from '@/types/ipc';
+import { PanelFooter } from "@/components/common/PanelFooter";
+import { PanelHeader } from "@/components/common/PanelHeader";
+import { PanelShell } from "@/components/common/PanelShell";
+import { DeviceSelector } from "@/features/master/components/DeviceSelector";
+import { MasterVolumeCard } from "@/features/master/components/MasterVolumeCard";
+import { useMasterVolume } from "@/features/master/hooks/useMasterVolume";
+import { useOutputDevices } from "@/features/master/hooks/useOutputDevices";
+import { MixerList } from "@/features/mixer/components/MixerList";
+import { SettingsView } from "@/features/settings/components/SettingsView";
+import { useSettings } from "@/features/settings/hooks/useSettings";
+import { useAudioSessions } from "@/features/mixer/hooks/useAudioSessions";
+import { usePeakStream } from "@/features/mixer/hooks/usePeakStream";
+import { useVolumeCommit } from "@/features/mixer/hooks/useVolumeCommit";
+import { DEFAULT_HOTKEY } from "@/lib/accelerator";
+import { useAudioStore } from "@/stores/audioStore";
+import type { AudioSession } from "@/types/ipc";
 
 /**
  * Composition only. No `invoke` call appears in this file or in any component file — every IPC
@@ -26,12 +27,13 @@ export const App: FC = () => {
   const master = useMasterVolume();
   const devices = useOutputDevices();
 
+  const [isShowingSettings, setIsShowingSettings] = useState(false);
+  const settings = useSettings();
+  const isPinned = settings.settings?.isPanelPinned ?? false;
+
   const draggingSessionIds = useAudioStore((state) => state.draggingSessionIds);
   const isDraggingMaster = useAudioStore((state) => state.isDraggingMaster);
   const capabilities = useAudioStore((state) => state.capabilities);
-  const hotkey = useSettingsStore((state) => state.hotkey);
-  const isPanelPinned = useSettingsStore((state) => state.isPanelPinned);
-  const setPanelPinned = useSettingsStore((state) => state.setPanelPinned);
 
   const sessionCommit = useVolumeCommit(
     useCallback(
@@ -85,21 +87,33 @@ export const App: FC = () => {
     <PanelShell
       header={
         <PanelHeader
-          isPinned={isPanelPinned}
+          isPinned={isPinned}
           onPinToggle={() => {
-            const next = !isPanelPinned;
-
-            setPanelPinned(next);
-            // The backend owns the focus-loss rule, so the store alone would leave the button
-            // looking active while the panel still vanished on click-away.
-            void setPanelPinnedOnBackend(next);
+            // Routed through persisted settings, the same path the settings toggle uses. Two
+            // separate sources for one boolean is why the icon never changed and the two
+            // controls disagreed.
+            if (settings.settings) {
+              settings.change({
+                ...settings.settings,
+                isPanelPinned: !isPinned,
+              });
+            }
           }}
-          onSettingsOpen={() => undefined}
+          onSettingsOpen={() => {
+            setIsShowingSettings((isShowing) => !isShowing);
+          }}
         />
       }
-      footer={<PanelFooter activeSessionCount={sessions.sessions.length} hotkey={hotkey} />}
+      footer={
+        <PanelFooter
+          activeSessionCount={sessions.sessions.length}
+          hotkey={settings.settings?.hotkey ?? DEFAULT_HOTKEY}
+        />
+      }
     >
-      {master.master && (
+      {/* Settings takes the whole panel. The master card is a control, and leaving it above a
+          settings form makes the panel read as two screens at once. */}
+      {!isShowingSettings && master.master && (
         <MasterVolumeCard
           master={master.master}
           onVolumeChange={handleMasterVolumeChange}
@@ -117,18 +131,29 @@ export const App: FC = () => {
       )}
 
       <div className="mt-2 flex min-h-0 flex-1 flex-col">
-        <MixerList
-          capabilities={capabilities}
-          sessions={sessions.sessions}
-          peakStream={peakStream}
-          draggingSessionIds={draggingSessionIds}
-          onVolumeChange={handleSessionVolumeChange}
-          onVolumeCommit={handleSessionVolumeCommit}
-          onMuteToggle={(session) => {
-            void sessions.toggleMute(session);
-          }}
-          onRefresh={sessions.refresh}
-        />
+        {isShowingSettings ? (
+          <SettingsView
+            settings={settings.settings}
+            hotkeyWarning={settings.hotkeyWarning}
+            onSettingsChange={settings.change}
+            onClose={() => {
+              setIsShowingSettings(false);
+            }}
+          />
+        ) : (
+          <MixerList
+            capabilities={capabilities}
+            sessions={sessions.sessions}
+            peakStream={peakStream}
+            draggingSessionIds={draggingSessionIds}
+            onVolumeChange={handleSessionVolumeChange}
+            onVolumeCommit={handleSessionVolumeCommit}
+            onMuteToggle={(session) => {
+              void sessions.toggleMute(session);
+            }}
+            onRefresh={sessions.refresh}
+          />
+        )}
       </div>
     </PanelShell>
   );

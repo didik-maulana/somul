@@ -27,6 +27,20 @@ class ResizeObserverStub implements ResizeObserver {
 
 globalThis.ResizeObserver = ResizeObserverStub;
 
+// jsdom does not implement matchMedia, and the theme resolver calls it on every apply.
+// Reports light so tests exercise the default branch; a test that cares stubs it itself.
+window.matchMedia = (query: string): MediaQueryList =>
+  ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
+
 // Pointer capture and scrolling have no meaning without a compositor.
 Element.prototype.hasPointerCapture = () => false;
 Element.prototype.setPointerCapture = () => undefined;

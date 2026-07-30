@@ -56,6 +56,31 @@ impl HotkeyState {
     }
 }
 
+/// Releases the global shortcut so the WebView can see the keys instead.
+///
+/// While the user is recording a new shortcut, the OS would otherwise intercept the currently
+/// bound combination and toggle the panel — the very thing they are trying to rebind would
+/// vanish the window mid-recording.
+pub fn suspend<R: Runtime>(app: &AppHandle<R>) {
+    let _ = app.global_shortcut().unregister_all();
+}
+
+/// Re-registers whatever was bound before [`suspend`].
+pub fn resume<R: Runtime>(app: &AppHandle<R>) {
+    let accelerator = match status(app) {
+        Some(HotkeyStatus::Registered(accelerator)) => accelerator,
+        Some(HotkeyStatus::Unavailable { accelerator, .. }) => accelerator,
+        None => DEFAULT_HOTKEY.to_owned(),
+    };
+
+    register(app, &accelerator);
+}
+
+/// The outcome of the last registration attempt, if one has happened.
+pub fn status<R: Runtime>(app: &AppHandle<R>) -> Option<HotkeyStatus> {
+    tauri::Manager::try_state::<HotkeyState>(app).and_then(|state| state.status())
+}
+
 fn parse(accelerator: &str) -> Result<Shortcut, String> {
     accelerator
         .parse::<Shortcut>()

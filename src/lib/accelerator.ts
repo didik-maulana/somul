@@ -1,10 +1,12 @@
+/** Matches `DEFAULT_HOTKEY` in `src-tauri/src/shortcut.rs`; used only until settings load. */
+export const DEFAULT_HOTKEY = 'CmdOrCtrl+Shift+V';
+
 /**
- * Turns an accelerator string like `CmdOrCtrl+Shift+V` into what a person expects to read.
- *
  * Apple keyboards label the modifier with a glyph, not a word, so `CmdOrCtrl` renders as ⌘ there
  * and as `Ctrl` everywhere else. This is a presentation choice about key labelling — it must
  * never be used to decide what the app can do, which is what platform capabilities are for.
  */
+
 const APPLE_KEY_GLYPHS: Record<string, string> = {
   cmdorctrl: '⌘',
   commandorcontrol: '⌘',

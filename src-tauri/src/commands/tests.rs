@@ -107,6 +107,10 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
         ),
         ("set_panel_visibility", json!({ "isVisible": true })),
         ("set_panel_pinned", json!({ "isPinned": true })),
+        // The two settings commands are absent on purpose. They need the store plugin, and
+        // giving the mock app a real store would have the suite reading and writing a
+        // developer's saved settings — the same defect as a test that changes their volume.
+        // Their behaviour is covered by the pure migration tests in `settings.rs`.
     ];
 
     for (cmd, body) in calls {

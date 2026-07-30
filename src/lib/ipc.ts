@@ -7,6 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type {
+  AppSettings,
   AudioDevice,
   AudioError,
   AudioSession,
@@ -16,6 +17,7 @@ import type {
   PlatformCapabilities,
   SessionId,
   SessionPeak,
+  SettingsUpdate,
 } from '@/types/ipc';
 
 /**
@@ -160,6 +162,27 @@ export const setSessionOutputDevice = (
   sessionId: SessionId,
   deviceId: DeviceId,
 ): Promise<void> => mutation('set_session_output_device', { sessionId, deviceId });
+
+export const getSettings = (): Promise<AppSettings> => command<AppSettings>('get_settings');
+
+/**
+ * Persists settings and applies their side effects — registering the hotkey, toggling
+ * launch-at-login, updating the pin.
+ *
+ * Returns what was actually applied, which can differ from what was sent when the OS refuses a
+ * hotkey. Render the returned settings, not the ones you passed in.
+ */
+export const updateSettings = (settings: AppSettings): Promise<SettingsUpdate> =>
+  command<SettingsUpdate>('update_settings', { settings });
+
+/**
+ * Frees the global shortcut while the user records a replacement.
+ *
+ * Without this the OS intercepts the currently bound combination and toggles the panel, so the
+ * window disappears in the middle of rebinding it.
+ */
+export const setHotkeyCapture = (isCapturing: boolean): Promise<void> =>
+  mutation('set_hotkey_capture', { isCapturing });
 
 export const AUDIO_EVENT = {
   peaks: 'audio://peaks',

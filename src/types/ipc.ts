@@ -90,3 +90,28 @@ export interface DeviceChangedPayload {
   devices: AudioDevice[];
   defaultDeviceId: DeviceId;
 }
+
+export type Theme = 'dark' | 'light' | 'system';
+
+/** Mirrors `AppSettings` in `src-tauri/src/settings.rs`. */
+export interface AppSettings {
+  schemaVersion: number;
+  /** Tauri accelerator, e.g. `CmdOrCtrl+Shift+V`. */
+  hotkey: string;
+  theme: Theme;
+  shouldLaunchAtLogin: boolean;
+  isPanelPinned: boolean;
+  /** processName -> deviceId. Reserved for per-app routing. */
+  routingPresets: Record<string, string>;
+  /** processName -> last volume scalar 0.0-1.0. */
+  volumeMemory: Record<string, number>;
+}
+
+export interface SettingsUpdate {
+  /**
+   * What was actually applied. May differ from what was sent — a hotkey the OS refused is rolled
+   * back to the previous one, so the UI must render this rather than its own optimistic guess.
+   */
+  settings: AppSettings;
+  hotkeyWarning: string | null;
+}

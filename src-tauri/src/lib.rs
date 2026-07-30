@@ -103,10 +103,17 @@ pub fn run() {
                 move |event| tray::handle_window_event(&panel, event)
             });
 
-            // A hotkey another app already owns is a degraded state, not a startup
-            // failure — the status is kept so the settings panel can warn about it.
+            // Settings are applied here rather than left to the UI: the hotkey and the pin have
+            // to work before the panel is ever opened, and the panel is what would otherwise
+            // apply them.
+            let stored = settings::load(app.handle());
+
+            app.state::<PanelState>().set_pinned(stored.is_panel_pinned);
+
+            // A hotkey another app already owns is a degraded state, not a startup failure — the
+            // status is kept so the settings view can warn about it.
             #[cfg(desktop)]
-            shortcut::register(app.handle(), shortcut::DEFAULT_HOTKEY);
+            shortcut::register(app.handle(), &stored.hotkey);
 
             Ok(())
         })
