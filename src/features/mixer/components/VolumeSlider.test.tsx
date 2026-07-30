@@ -1,0 +1,153 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+
+import { VolumeSlider } from '@/features/mixer/components/VolumeSlider';
+
+const renderSlider = (props: Partial<Parameters<typeof VolumeSlider>[0]> = {}) => {
+  const onVolumeChange = vi.fn();
+  const onVolumeCommit = vi.fn();
+
+  render(
+    <VolumeSlider
+      volume={0.74}
+      label="Volume for Spotify"
+      onVolumeChange={onVolumeChange}
+      onVolumeCommit={onVolumeCommit}
+      {...props}
+    />,
+  );
+
+  return { onVolumeChange, onVolumeCommit, slider: screen.getByRole('slider') };
+};
+
+describe('VolumeSlider', () => {
+  it('renders the scalar as a percentage on the underlying control', () => {
+    const { slider } = renderSlider();
+
+    expect(slider).toHaveAttribute('aria-valuenow', '74');
+    expect(slider).toHaveAttribute('aria-valuemin', '0');
+    expect(slider).toHaveAttribute('aria-valuemax', '100');
+  });
+
+  /** DESIGN.md §11: a human string, not the raw float. */
+  it('exposes aria-valuetext as a human string', () => {
+    const { slider } = renderSlider();
+
+    expect(slider).toHaveAttribute('aria-valuetext', '74 percent');
+  });
+
+  it('names the control after the app it controls', () => {
+    const { slider } = renderSlider();
+
+    expect(slider).toHaveAttribute('aria-label', 'Volume for Spotify');
+  });
+
+  /** DESIGN.md §11: ←/→ moves 1%. */
+  it('steps by one percent with the arrow keys', async () => {
+    const user = userEvent.setup();
+    const { onVolumeChange, slider } = renderSlider();
+
+    slider.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(onVolumeChange).toHaveBeenCalledWith(0.75);
+
+    await user.keyboard('{ArrowLeft}');
+
+    expect(onVolumeChange).toHaveBeenLastCalledWith(0.73);
+  });
+
+  /** DESIGN.md §11: Shift+←/→ moves 10%. */
+  it('steps by ten percent with shift held', async () => {
+    const user = userEvent.setup();
+    const { onVolumeChange, slider } = renderSlider();
+
+    slider.focus();
+    await user.keyboard('{Shift>}{ArrowRight}{/Shift}');
+
+    expect(onVolumeChange).toHaveBeenCalledWith(0.84);
+  });
+
+  it('commits on key-up so a keyboard change is never left uncommitted', async () => {
+    const user = userEvent.setup();
+    const { onVolumeCommit, slider } = renderSlider();
+
+    slider.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(onVolumeCommit).toHaveBeenCalledWith(0.75);
+  });
+
+  it('clamps an out-of-range scalar rather than overflowing the track', () => {
+    const { slider } = renderSlider({ volume: 4 });
+
+    expect(slider).toHaveAttribute('aria-valuenow', '100');
+  });
+
+  /** DESIGN.md §9.4: a muted row drops its slider fill to `muted`. */
+  it('drops the range to the muted fill when muted', () => {
+    const { container } = render(
+      <VolumeSlider
+        volume={0.5}
+        label="Volume for Spotify"
+        isMuted
+        onVolumeChange={vi.fn()}
+      />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      '[&_[data-slot=slider-range]]:bg-muted',
+    );
+  });
+
+  it('uses the primary fill when not muted', () => {
+    const { container } = render(
+      <VolumeSlider volume={0.5} label="Volume for Spotify" onVolumeChange={vi.fn()} />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      '[&_[data-slot=slider-range]]:bg-primary',
+    );
+  });
+
+  /**
+   * DESIGN.md §7: no transition on thumb POSITION during a drag; 140 ms on scale and shadow
+   * only. A transition on translate would lag the pointer.
+   */
+  it('transitions only transform and shadow on the thumb, never position', () => {
+    const { container } = render(
+      <VolumeSlider volume={0.5} label="Volume for Spotify" onVolumeChange={vi.fn()} />,
+    );
+
+    const root = container.firstElementChild;
+
+    expect(root).toHaveClass(
+      '[&_[data-slot=slider-thumb]]:transition-[transform,box-shadow]',
+      '[&_[data-slot=slider-thumb]]:duration-[140ms]',
+    );
+    expect(root?.className).not.toContain('transition-all');
+    expect(root?.className).not.toContain('transition-[left');
+  });
+
+  /** DESIGN.md §10: the focus ring is keyboard-only and offsets against `popover`. */
+  it('offsets its focus ring against the popover surface', () => {
+    const { container } = render(
+      <VolumeSlider volume={0.5} label="Volume for Spotify" onVolumeChange={vi.fn()} />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      '[&_[data-slot=slider-thumb]]:focus-visible:ring-offset-popover',
+    );
+  });
+
+  it('is inert when disabled', async () => {
+    const user = userEvent.setup();
+    const { onVolumeChange, slider } = renderSlider({ isDisabled: true });
+
+    slider.focus();
+    await user.keyboard('{ArrowRight}');
+
+    expect(onVolumeChange).not.toHaveBeenCalled();
+  });
+});
