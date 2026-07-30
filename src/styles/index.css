@@ -173,6 +173,119 @@
   --radius-card: var(--radius);
 }
 
+@utility text-display {
+  font-size: 24px;
+  line-height: 30px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+@utility text-title {
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+@utility text-body {
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+@utility text-label {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+@utility text-caption {
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
+
+@utility text-micro {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+@utility text-numeric {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility shadow-e2 {
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.24);
+}
+
+@utility shadow-e3 {
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.32);
+}
+
+@utility shadow-e4 {
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.44);
+}
+
+@utility panel-glass {
+  background: color-mix(in srgb, var(--popover) 82%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+
+  @media (prefers-reduced-transparency: reduce) {
+    background: var(--popover);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@utility glow-brand {
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--primary) 40%, transparent),
+    0 4px 16px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+
+/* DESIGN.md §12: permitted on the header wordmark, the master slider fill, the
+   missing-icon fallback tile, and an empty-state background surface. Nowhere else. */
+@utility bg-signature {
+  background-image: linear-gradient(135deg, #293681 0%, #4274d9 55%, #95ccdd 100%);
+}
+
+@utility skeleton-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--foreground) 6%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s var(--ease-standard) infinite;
+
+  @media (prefers-reduced-motion: reduce) {
+    background-image: none;
+    animation: none;
+  }
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
