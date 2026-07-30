@@ -105,3 +105,12 @@ target/
 ### Tauri
 # Generated permission and capability schemas
 src-tauri/gen/
+
+### Internal planning documents
+# Design, architecture, and build-plan notes. Kept locally, deliberately not
+# published: code comments carry the reasoning a contributor needs (CONTRIBUTING.md).
+ARCHITECTURE.md
+DESIGN.md
+GOAL.md
+DECISIONS.md
+PROGRESS.md
