@@ -3,9 +3,10 @@ pub mod panel;
 #[cfg(test)]
 mod tests;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::audio::AudioBackend;
+use crate::meter::MeterGate;
 
 /// The §7.1 command surface, declared once. `lib.rs` and the handler tests both expand this, so
 /// a command that reaches production unregistered cannot pass the suite.
@@ -33,28 +34,28 @@ macro_rules! somul_command_handlers {
 /// ARCHITECTURE.md §5 keeps handlers thin: everything in `commands/` delegates here, and no
 /// audio logic lives above the [`AudioBackend`] boundary.
 pub struct AudioState {
-    backend: Box<dyn AudioBackend>,
-    is_panel_visible: AtomicBool,
+    backend: Arc<dyn AudioBackend>,
+    gate: Arc<MeterGate>,
 }
 
 impl AudioState {
-    pub fn new(backend: Box<dyn AudioBackend>) -> Self {
-        Self {
-            backend,
-            is_panel_visible: AtomicBool::new(false),
-        }
+    /// The backend is shared rather than owned: the meter loop and the command layer must drive
+    /// the *same* adapter instance, or a WASAPI enumerator gets built twice and the two copies
+    /// drift apart.
+    pub fn new(backend: Arc<dyn AudioBackend>, gate: Arc<MeterGate>) -> Self {
+        Self { backend, gate }
     }
 
     pub fn backend(&self) -> &dyn AudioBackend {
         self.backend.as_ref()
     }
 
-    /// §4.1: the meter loop reads this every tick and does no audio work while it is false.
     pub fn is_panel_visible(&self) -> bool {
-        self.is_panel_visible.load(Ordering::Acquire)
+        self.gate.is_visible()
     }
 
+    /// §4.1: flipping this to false stops the meter loop outright.
     pub fn set_panel_visible(&self, is_visible: bool) {
-        self.is_panel_visible.store(is_visible, Ordering::Release);
+        self.gate.set_visible(is_visible);
     }
 }

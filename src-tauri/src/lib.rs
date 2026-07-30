@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod commands;
+pub mod meter;
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 

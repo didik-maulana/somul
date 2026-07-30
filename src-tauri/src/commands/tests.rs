@@ -13,10 +13,12 @@ use tauri::{Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use crate::audio::mock::MockAudioBackend;
 use crate::audio::AudioBackend;
 use crate::commands::AudioState;
+use crate::meter::MeterGate;
+use std::sync::Arc;
 
-fn webview_with(backend: Box<dyn AudioBackend>) -> WebviewWindow<MockRuntime> {
+fn webview_with(backend: Arc<dyn AudioBackend>) -> WebviewWindow<MockRuntime> {
     let app = mock_builder()
-        .manage(AudioState::new(backend))
+        .manage(AudioState::new(backend, Arc::new(MeterGate::new())))
         .invoke_handler(crate::somul_command_handlers!())
         .build(mock_context(noop_assets()))
         .expect("the mock app builds");
@@ -53,7 +55,7 @@ fn invoke(webview: &WebviewWindow<MockRuntime>, cmd: &str, body: Value) -> Resul
 }
 
 fn full_per_app() -> WebviewWindow<MockRuntime> {
-    webview_with(Box::new(MockAudioBackend::full_per_app()))
+    webview_with(Arc::new(MockAudioBackend::full_per_app()))
 }
 
 fn first_session_id(webview: &WebviewWindow<MockRuntime>) -> String {
@@ -66,7 +68,10 @@ fn first_session_id(webview: &WebviewWindow<MockRuntime>) -> String {
 
 #[test]
 fn starts_with_the_panel_hidden_so_no_metering_happens_at_boot() {
-    let state = AudioState::new(Box::new(MockAudioBackend::full_per_app()));
+    let state = AudioState::new(
+        Arc::new(MockAudioBackend::full_per_app()),
+        Arc::new(MeterGate::new()),
+    );
 
     assert!(!state.is_panel_visible());
 }
@@ -197,7 +202,7 @@ fn a_stringified_pid_is_refused_at_the_ipc_boundary() {
 /// loudly, so the UI can render the notice instead of dead sliders.
 #[test]
 fn the_master_only_shape_refuses_per_app_commands() {
-    let webview = webview_with(Box::new(MockAudioBackend::master_only()));
+    let webview = webview_with(Arc::new(MockAudioBackend::master_only()));
 
     let capabilities = invoke(&webview, "get_platform_capabilities", json!({}))
         .expect("capabilities are always available");
