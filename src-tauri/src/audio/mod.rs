@@ -142,6 +142,72 @@ pub struct PlatformCapabilities {
     pub unsupported_reason: Option<String>,
 }
 
+impl PlatformCapabilities {
+    /// Windows and Linux (§2). Per-app routing stays false in v1.0 — it is v1.1 on Linux and
+    /// an unproven COM spike on Windows (§1.2).
+    pub fn full_per_app() -> Self {
+        Self {
+            has_per_app_volume: true,
+            has_per_app_mute: true,
+            has_per_app_meter: true,
+            has_per_app_routing: false,
+            unsupported_reason: None,
+        }
+    }
+
+    /// macOS v1 (§2.2.5). The reason is rendered verbatim by the UI, which is why it is
+    /// required rather than optional here.
+    pub fn master_only(reason: impl Into<String>) -> Self {
+        Self {
+            has_per_app_volume: false,
+            has_per_app_mute: false,
+            has_per_app_meter: false,
+            has_per_app_routing: false,
+            unsupported_reason: Some(reason.into()),
+        }
+    }
+}
+
+/// ARCHITECTURE.md §2.4. One trait, every adapter.
+///
+/// An operation the platform does not support returns [`AudioError::Unsupported`] — never
+/// `Ok(())`, never a silent no-op. The frontend gates on [`AudioBackend::capabilities`] rather
+/// than sniffing the OS, so a silent no-op here surfaces as a control that appears to work.
+///
+/// `set_default_output_device` is not in the §2.4 listing. §7.1 marks it v1 and T-020 requires
+/// thin handlers, so the adapter layer is the only place it can live — see DECISIONS.md D-001.
+pub trait AudioBackend: Send + Sync {
+    fn capabilities(&self) -> PlatformCapabilities;
+
+    fn list_sessions(&self) -> Result<Vec<AudioSession>, AudioError>;
+    fn set_session_volume(&self, id: &SessionId, volume: f32) -> Result<(), AudioError>;
+    fn set_session_mute(&self, id: &SessionId, is_muted: bool) -> Result<(), AudioError>;
+
+    fn master(&self) -> Result<MasterState, AudioError>;
+    fn set_master_volume(&self, volume: f32) -> Result<(), AudioError>;
+    fn set_master_mute(&self, is_muted: bool) -> Result<(), AudioError>;
+
+    fn list_output_devices(&self) -> Result<Vec<AudioDevice>, AudioError>;
+    fn set_default_output_device(&self, device: &DeviceId) -> Result<(), AudioError>;
+    fn set_session_output_device(
+        &self,
+        id: &SessionId,
+        device: &DeviceId,
+    ) -> Result<(), AudioError>;
+
+    fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError>;
+}
+
+/// §6.1: volume and peak are linear scalars on the wire. Adapters clamp at the boundary so an
+/// out-of-range value from the OS or the UI never reaches the other side.
+pub fn clamp_unit_scalar(value: f32) -> f32 {
+    if value.is_nan() {
+        return 0.0;
+    }
+
+    value.clamp(0.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -274,6 +340,45 @@ mod tests {
         let json = serde_json::to_value(&peak).expect("SessionPeak must serialize");
 
         assert_eq!(json["sessionId"], "pw:node:56");
+    }
+
+    #[test]
+    fn full_per_app_keeps_routing_off_until_v1_1() {
+        let capabilities = PlatformCapabilities::full_per_app();
+
+        assert!(capabilities.has_per_app_volume);
+        assert!(capabilities.has_per_app_mute);
+        assert!(capabilities.has_per_app_meter);
+        assert!(!capabilities.has_per_app_routing);
+        assert_eq!(capabilities.unsupported_reason, None);
+    }
+
+    #[test]
+    fn master_only_reports_no_per_app_capability_and_carries_a_reason() {
+        let capabilities = PlatformCapabilities::master_only("macOS per-app control is v1.2");
+
+        assert!(!capabilities.has_per_app_volume);
+        assert!(!capabilities.has_per_app_mute);
+        assert!(!capabilities.has_per_app_meter);
+        assert!(!capabilities.has_per_app_routing);
+        assert_eq!(
+            capabilities.unsupported_reason.as_deref(),
+            Some("macOS per-app control is v1.2")
+        );
+    }
+
+    #[test]
+    fn clamps_scalars_into_the_unit_range() {
+        assert_eq!(clamp_unit_scalar(-0.4), 0.0);
+        assert_eq!(clamp_unit_scalar(0.0), 0.0);
+        assert_eq!(clamp_unit_scalar(0.62), 0.62);
+        assert_eq!(clamp_unit_scalar(1.0), 1.0);
+        assert_eq!(clamp_unit_scalar(1.8), 1.0);
+    }
+
+    #[test]
+    fn treats_a_nan_scalar_as_silence() {
+        assert_eq!(clamp_unit_scalar(f32::NAN), 0.0);
     }
 
     #[test]
