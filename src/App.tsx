@@ -11,6 +11,7 @@ import { MixerList } from '@/features/mixer/components/MixerList';
 import { useAudioSessions } from '@/features/mixer/hooks/useAudioSessions';
 import { usePeakStream } from '@/features/mixer/hooks/usePeakStream';
 import { useVolumeCommit } from '@/features/mixer/hooks/useVolumeCommit';
+import { setPanelPinned as setPanelPinnedOnBackend } from '@/lib/ipc';
 import { useAudioStore } from '@/stores/audioStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import type { AudioSession } from '@/types/ipc';
@@ -86,7 +87,12 @@ export const App: FC = () => {
         <PanelHeader
           isPinned={isPanelPinned}
           onPinToggle={() => {
-            setPanelPinned(!isPanelPinned);
+            const next = !isPanelPinned;
+
+            setPanelPinned(next);
+            // The backend owns the focus-loss rule, so the store alone would leave the button
+            // looking active while the panel still vanished on click-away.
+            void setPanelPinnedOnBackend(next);
           }}
           onSettingsOpen={() => undefined}
         />

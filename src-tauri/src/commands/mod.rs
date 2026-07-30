@@ -25,6 +25,7 @@ macro_rules! somul_command_handlers {
             $crate::commands::audio::set_default_output_device,
             $crate::commands::audio::set_session_output_device,
             $crate::commands::panel::set_panel_visibility,
+            $crate::commands::panel::set_panel_pinned,
         ]
     };
 }

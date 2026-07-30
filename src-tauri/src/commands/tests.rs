@@ -19,6 +19,7 @@ use std::sync::Arc;
 fn webview_with(backend: Arc<dyn AudioBackend>) -> WebviewWindow<MockRuntime> {
     let app = mock_builder()
         .manage(AudioState::new(backend, Arc::new(MeterGate::new())))
+        .manage(crate::tray::PanelState::default())
         .invoke_handler(crate::somul_command_handlers!())
         .build(mock_context(noop_assets()))
         .expect("the mock app builds");
@@ -81,7 +82,7 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
     let webview = full_per_app();
     let session_id = first_session_id(&webview);
 
-    let calls: [(&str, Value); 11] = [
+    let calls: [(&str, Value); 12] = [
         ("get_platform_capabilities", json!({})),
         ("get_audio_sessions", json!({})),
         (
@@ -105,6 +106,7 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
             json!({ "sessionId": session_id, "deviceId": "mock:headphones" }),
         ),
         ("set_panel_visibility", json!({ "isVisible": true })),
+        ("set_panel_pinned", json!({ "isPinned": true })),
     ];
 
     for (cmd, body) in calls {
@@ -235,4 +237,17 @@ fn panel_visibility_is_the_only_command_that_touches_the_meter_gate() {
     .expect("visibility write");
 
     assert!(!state.is_panel_visible());
+}
+
+/// Pinning suspends the focus-loss rule. The command is what carries the user's choice to the
+/// backend that owns that rule — a store-only toggle would light the button up and change nothing.
+#[test]
+fn pinning_reaches_the_backend_state() {
+    let webview = full_per_app();
+
+    invoke(&webview, "set_panel_pinned", json!({ "isPinned": true })).expect("pin");
+    assert!(webview.state::<crate::tray::PanelState>().is_pinned());
+
+    invoke(&webview, "set_panel_pinned", json!({ "isPinned": false })).expect("unpin");
+    assert!(!webview.state::<crate::tray::PanelState>().is_pinned());
 }

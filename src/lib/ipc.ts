@@ -146,6 +146,15 @@ export const setDefaultOutputDevice = (deviceId: DeviceId): Promise<void> =>
 export const setPanelVisibility = (isVisible: boolean): Promise<void> =>
   mutation('set_panel_visibility', { isVisible });
 
+/**
+ * Keeps the panel open when it loses focus.
+ *
+ * Unpinned, the panel hides as soon as you click elsewhere — which makes it impossible to adjust
+ * an app's volume while watching that app. Pinning suspends that behaviour.
+ */
+export const setPanelPinned = (isPinned: boolean): Promise<void> =>
+  mutation('set_panel_pinned', { isPinned });
+
 /** v1.1. Present for contract completeness; v1.0 backends reject it with `unsupported`. */
 export const setSessionOutputDevice = (
   sessionId: SessionId,
