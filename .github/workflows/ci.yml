@@ -1,10 +1,12 @@
 name: CI
 
+# Automatic triggers are paused while the feature set is still churning; CI
+# runs on demand only. Restore the push/pull_request triggers below to re-arm.
 on:
-  push:
-    branches: [main]
-  pull_request:
   workflow_dispatch:
+  # push:
+  #   branches: [main]
+  # pull_request:
 
 concurrency:
   group: ci-${{ github.ref }}
