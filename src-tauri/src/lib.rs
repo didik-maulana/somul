@@ -3,8 +3,11 @@
 pub mod audio;
 pub mod commands;
 pub mod meter;
+pub mod tray;
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+
+use crate::tray::PanelPin;
 
 pub const PANEL_LABEL: &str = "main";
 pub const PANEL_WIDTH: f64 = 360.0;
@@ -31,8 +34,19 @@ pub fn run() {
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(somul_command_handlers!())
+        .manage(PanelPin::default())
         .setup(|app| {
-            build_panel(app.handle())?;
+            // §8.1 ordering: the tray is registered first and is interactive from that point.
+            // The WebView then boots behind a hidden window, so its cost never lands on the
+            // 300 ms tray-ready measurement.
+            let has_tray = tray::register(app.handle());
+            let panel = build_panel(app.handle(), has_tray)?;
+
+            panel.on_window_event({
+                let panel = panel.clone();
+                move |event| tray::handle_window_event(&panel, event)
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -41,15 +55,19 @@ pub fn run() {
 
 /// ARCHITECTURE.md §8.1: the window is built hidden so the WebView boot cost never lands
 /// on the 300 ms tray-ready measurement.
-fn build_panel(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+///
+/// Without a tray (§8.2 — a Linux desktop missing `libayatana-appindicator3`) the panel becomes
+/// an ordinary decorated window instead. Keeping it frameless and hidden there would leave the
+/// user no way to reach the app at all.
+fn build_panel(app: &AppHandle, has_tray: bool) -> tauri::Result<WebviewWindow> {
     let panel = WebviewWindowBuilder::new(app, PANEL_LABEL, WebviewUrl::default())
         .title("SOMUL")
         .inner_size(PANEL_WIDTH, PANEL_HEIGHT)
-        .visible(false)
-        .decorations(false)
+        .visible(!has_tray)
+        .decorations(!has_tray)
         .resizable(false)
-        .skip_taskbar(true)
-        .always_on_top(true)
+        .skip_taskbar(has_tray)
+        .always_on_top(has_tray)
         .transparent(true)
         .build()?;
 
