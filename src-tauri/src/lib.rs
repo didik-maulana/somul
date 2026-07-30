@@ -3,6 +3,8 @@
 pub mod audio;
 pub mod commands;
 pub mod meter;
+#[cfg(desktop)]
+pub mod shortcut;
 pub mod tray;
 
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
@@ -35,6 +37,7 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .invoke_handler(somul_command_handlers!())
         .manage(PanelPin::default())
+        .manage(shortcut::HotkeyState::default())
         .setup(|app| {
             // §8.1 ordering: the tray is registered first and is interactive from that point.
             // The WebView then boots behind a hidden window, so its cost never lands on the
@@ -46,6 +49,11 @@ pub fn run() {
                 let panel = panel.clone();
                 move |event| tray::handle_window_event(&panel, event)
             });
+
+            // §8.3: a hotkey another app already owns is a degraded state, not a startup
+            // failure — the status is kept so the settings panel can warn about it.
+            #[cfg(desktop)]
+            shortcut::register(app.handle(), shortcut::DEFAULT_HOTKEY);
 
             Ok(())
         })

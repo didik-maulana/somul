@@ -6,7 +6,21 @@
 //!
 //! Invoke it from an adapter's test module with [`audio_backend_contract!`].
 
+use std::sync::{Mutex, MutexGuard};
+
 use super::{AudioBackend, AudioError, SessionId};
+
+/// A real adapter drives real hardware, and several checks write to it. Cargo runs tests in
+/// parallel by default, so without this the device-switch check would move the default output
+/// out from under a concurrent volume check — which is exactly the intermittent failure this
+/// serialization removes.
+static HARDWARE: Mutex<()> = Mutex::new(());
+
+fn exclusive() -> MutexGuard<'static, ()> {
+    HARDWARE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn unknown_session() -> SessionId {
     SessionId::from_backend_identifier("contract:session:does-not-exist")
@@ -125,6 +139,8 @@ pub fn sessions_report_wire_legal_values(backend: &dyn AudioBackend) {
 }
 
 pub fn session_volume_round_trips(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     let Ok(sessions) = backend.list_sessions() else {
         return;
     };
@@ -152,6 +168,8 @@ pub fn session_volume_round_trips(backend: &dyn AudioBackend) {
 
 /// Out-of-range input is clamped at the adapter boundary rather than propagated (§6.1).
 pub fn session_volume_is_clamped(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     let Ok(sessions) = backend.list_sessions() else {
         return;
     };
@@ -180,6 +198,8 @@ pub fn session_volume_is_clamped(backend: &dyn AudioBackend) {
 }
 
 pub fn session_mute_round_trips(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     let Ok(sessions) = backend.list_sessions() else {
         return;
     };
@@ -229,6 +249,8 @@ pub fn writes_to_a_dead_session_report_session_not_found(backend: &dyn AudioBack
 }
 
 pub fn master_state_is_wire_legal(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     let master = backend
         .master()
         .expect("master volume is supported on every platform (§2)");
@@ -263,6 +285,8 @@ fn assert_supported_or_refused(result: Result<(), AudioError>, operation: &str) 
 }
 
 pub fn master_volume_round_trips_and_clamps(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     if !assert_supported_or_refused(backend.set_master_volume(0.4), "set_master_volume") {
         return;
     }
@@ -284,6 +308,8 @@ pub fn master_volume_round_trips_and_clamps(backend: &dyn AudioBackend) {
 }
 
 pub fn master_mute_round_trips(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     if !assert_supported_or_refused(backend.set_master_mute(true), "set_master_mute") {
         return;
     }
@@ -300,6 +326,8 @@ pub fn master_mute_round_trips(backend: &dyn AudioBackend) {
 }
 
 pub fn exactly_one_output_device_is_default(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     let devices = backend
         .list_output_devices()
         .expect("device enumeration is supported on every platform (§2)");
@@ -317,8 +345,16 @@ pub fn exactly_one_output_device_is_default(backend: &dyn AudioBackend) {
     );
 }
 
+/// Restores the original default before returning. Against a real adapter this check moves the
+/// machine's actual output, and a test suite has no business leaving a developer's audio pointed
+/// somewhere else.
 pub fn default_output_device_switches(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     let devices = backend.list_output_devices().expect("devices");
+    let Some(original) = devices.iter().find(|device| device.is_default) else {
+        return;
+    };
     let Some(target) = devices.iter().find(|device| !device.is_default) else {
         return;
     };
@@ -334,13 +370,18 @@ pub fn default_output_device_switches(backend: &dyn AudioBackend) {
         .find(|device| device.is_default)
         .expect("a default device survives the switch");
 
+    let restored = backend.set_default_output_device(&original.device_id);
+
     assert_eq!(
         observed.device_id, target.device_id,
         "the requested device did not become default"
     );
+    restored.expect("the original default output device must be restorable");
 }
 
 pub fn switching_to_an_unknown_device_reports_device_not_found(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     assert!(
         matches!(
             backend.set_default_output_device(&unknown_device()),
@@ -375,6 +416,8 @@ pub fn per_app_routing_is_unsupported_in_v1(backend: &dyn AudioBackend) {
 
 /// §6.1 plus §4.1: peaks are linear amplitudes, and one tick covers every session at once.
 pub fn peaks_cover_every_session_exactly_once(backend: &dyn AudioBackend) {
+    let _guard = exclusive();
+
     let peaks = backend.read_peaks().expect("peak read");
 
     for peak in &peaks {
