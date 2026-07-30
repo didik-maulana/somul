@@ -1,5 +1,7 @@
 #![deny(clippy::all)]
 
+pub mod audio;
+
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
 pub const PANEL_LABEL: &str = "main";
