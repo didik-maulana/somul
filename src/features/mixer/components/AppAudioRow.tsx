@@ -1,6 +1,6 @@
 import type React from 'react';
 
-import { MuteToggle } from '@/features/mixer/components/MuteToggle';
+import { AppSpeaker } from '@/features/mixer/components/AppSpeaker';
 import { PeakMeter } from '@/features/mixer/components/PeakMeter';
 import { VolumeSlider } from '@/features/mixer/components/VolumeSlider';
 import type { PeakStream } from '@/features/mixer/hooks/usePeakStream';
@@ -18,31 +18,6 @@ export interface AppAudioRowProps {
   onMuteToggle: () => void;
 }
 
-const AppIcon: React.FC<{ session: AudioSession }> = ({ session }) => {
-  if (session.iconDataUri) {
-    return (
-      <img
-        src={session.iconDataUri}
-        alt=""
-        aria-hidden="true"
-        className="size-8 shrink-0 rounded-md"
-      />
-    );
-  }
-
-  // A missing icon falls back to a tile, not a glyph. The tile is a surface rather than a stroke
-  // icon, which is why the signature gradient is permitted here.
-  return (
-    <span
-      aria-hidden="true"
-      data-testid="app-icon-fallback"
-      className="bg-signature text-label flex size-8 shrink-0 items-center justify-center rounded-md opacity-20"
-    >
-      {session.displayName.charAt(0).toUpperCase()}
-    </span>
-  );
-};
-
 /**
  * The core repeated unit of the mixer.
  *
@@ -59,6 +34,11 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
   onMuteToggle,
 }) => {
   const isExpired = session.state === 'expired';
+  // The platform sees the app but could not take control of it — on macOS, a tap the OS refused.
+  // Its audio is real and playing, so hiding the row would be a lie; leaving the slider live
+  // would be a worse one, because it would write to a control that does not exist.
+  const isUncontrollable = session.state === 'inactive';
+  const isDisabled = isExpired || isUncontrollable;
 
   return (
     <div
@@ -76,9 +56,15 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
         'focus-within:ring-ring focus-within:ring-offset-background focus-within:ring-2 focus-within:ring-offset-2',
         isDragging && 'bg-card border-border shadow-e2',
         isExpired && 'pointer-events-none opacity-50',
+        isUncontrollable && 'opacity-60',
       )}
     >
-      <AppIcon session={session} />
+      <AppSpeaker
+        session={session}
+        peakStream={peakStream}
+        isDisabled={isDisabled}
+        onMuteToggle={onMuteToggle}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-center gap-2">
@@ -100,14 +86,24 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
             {session.displayName}
           </span>
 
-          {session.isMuted && (
+          {session.isMuted && !isUncontrollable && (
             <span className="text-micro text-muted-foreground bg-secondary rounded-xs px-1">
               MUTED
             </span>
           )}
 
+          {isUncontrollable && (
+            <span
+              data-testid="uncontrollable-chip"
+              title="macOS would not let Somul take over this app's audio."
+              className="text-micro text-muted-foreground bg-secondary rounded-xs px-1"
+            >
+              NO CONTROL
+            </span>
+          )}
+
           <span className="text-numeric text-muted-foreground shrink-0">
-            {formatPercent(session.volume)}
+            {isUncontrollable ? '—' : formatPercent(session.volume)}
           </span>
         </div>
 
@@ -115,7 +111,7 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
           volume={session.volume}
           label={`Volume for ${session.displayName}`}
           isMuted={session.isMuted}
-          isDisabled={isExpired}
+          isDisabled={isDisabled}
           onVolumeChange={onVolumeChange}
           onVolumeCommit={onVolumeCommit}
         />
@@ -128,14 +124,6 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
           />
         )}
       </div>
-
-      <MuteToggle
-        isMuted={session.isMuted}
-        volume={session.volume}
-        appName={session.displayName}
-        isDisabled={isExpired}
-        onMuteToggle={onMuteToggle}
-      />
     </div>
   );
 };

@@ -89,6 +89,20 @@ describe('AppAudioRow', () => {
     expect(screen.queryByTestId('app-icon-fallback')).not.toBeInTheDocument();
   });
 
+  /**
+   * The logo is the mute control. A row carrying a separate mute button as well would offer two
+   * controls for one action, and the second one is what a user would learn to ignore.
+   */
+  it('exposes exactly one mute control, and it is the app tile', () => {
+    renderRow();
+
+    const controls = screen.getAllByRole('button');
+
+    expect(controls).toHaveLength(1);
+    expect(controls[0]).toBe(screen.getByTestId('app-speaker'));
+    expect(controls[0]).toHaveAccessibleName('Mute Spotify');
+  });
+
   describe('the six row states', () => {
     it('1. default — transparent with no border colour', () => {
       const { row } = renderRow();
@@ -138,6 +152,37 @@ describe('AppAudioRow', () => {
       expect(screen.getByTestId('device-lost-dot')).toBeInTheDocument();
       expect(screen.getByRole('slider')).toHaveAttribute('data-disabled');
       expect(screen.getByRole('button')).toBeDisabled();
+    });
+  });
+
+  /**
+   * The platform sees the app but could not take control of it — on macOS, a tap the OS refused.
+   * Hiding the row would deny audio the user can hear; leaving the slider live would offer a
+   * control that writes nowhere. It is listed, and it is visibly inert.
+   */
+  describe('an app the platform could not take control of', () => {
+    const uncontrollable = () => renderRow({ session: session({ state: 'inactive' }) });
+
+    it('is listed rather than hidden — its audio is real', () => {
+      uncontrollable();
+
+      expect(screen.getByText('Spotify')).toBeInTheDocument();
+      expect(screen.getByTestId('uncontrollable-chip')).toHaveTextContent('NO CONTROL');
+    });
+
+    it('offers no live controls', () => {
+      uncontrollable();
+
+      expect(screen.getByRole('slider')).toHaveAttribute('data-disabled');
+      expect(screen.getByRole('button')).toBeDisabled();
+    });
+
+    /** A percentage would imply a level Somul is in a position to change. */
+    it('shows no percentage it cannot honour', () => {
+      uncontrollable();
+
+      expect(screen.getByText('—')).toBeInTheDocument();
+      expect(screen.queryByText('74%')).not.toBeInTheDocument();
     });
   });
 

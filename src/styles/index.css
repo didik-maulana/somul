@@ -303,6 +303,23 @@
   background-image: linear-gradient(135deg, #293681 0%, #4274d9 55%, #95ccdd 100%);
 }
 
+/* The halo around an app's speaker tile. `--peak-level` is written by the shared rAF loop, so the
+   ring is live data on the same terms as the peak meter (§7) rather than an idle decorative loop:
+   at silence it is fully transparent and completely still.
+
+   Reduced motion drops the scale term and keeps the opacity term. Freezing it outright would
+   delete the signal; the travel is what carries the vestibular risk, not the fade. */
+@utility speaker-ring {
+  --peak-level: 0;
+  transform-origin: center;
+  transform: scale(calc(1 + var(--peak-level) * 0.18));
+  opacity: calc(var(--peak-level) * 0.85);
+
+  @media (prefers-reduced-motion: reduce) {
+    transform: none;
+  }
+}
+
 @utility skeleton-shimmer {
   background-image: linear-gradient(
     90deg,

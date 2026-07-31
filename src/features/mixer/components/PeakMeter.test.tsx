@@ -2,6 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PeakMeter } from '@/features/mixer/components/PeakMeter';
+import { SpeakerRing } from '@/features/mixer/components/SpeakerRing';
 import { usePeakStream } from '@/features/mixer/hooks/usePeakStream';
 import type { SessionId, SessionPeak } from '@/types/ipc';
 
@@ -184,6 +185,61 @@ describe('usePeakStream', () => {
     expect(fillOf(0).style.transform).toBe('scaleX(0.2)');
     expect(fillOf(1).style.transform).toBe('scaleX(0.4)');
     expect(fillOf(2).style.transform).toBe('scaleX(0.6000000000000001)');
+  });
+
+  /**
+   * A row now feeds two sinks from one session — the meter bar and the speaker ring. The failure
+   * this guards against: decaying the session once per sink, which would drop the second sink a
+   * frame further down than the first and split one level into two readings.
+   */
+  it('decays a session once per frame no matter how many sinks read it', () => {
+    const TwoSinkHarness = () => {
+      const stream = usePeakStream();
+
+      return (
+        <>
+          <PeakMeter sessionId={sessionId} stream={stream} />
+          <SpeakerRing sessionId={sessionId} stream={stream} />
+        </>
+      );
+    };
+
+    render(<TwoSinkHarness />);
+
+    emitPeaks([{ sessionId, peak: 0.9 }]);
+    advanceOneFrame();
+    emitPeaks([{ sessionId, peak: 0 }]);
+    advanceOneFrame(100);
+
+    const bar = Number(/scaleX\(([\d.]+)\)/.exec(fillOf().style.transform)?.[1]);
+    const ring = Number(screen.getByTestId('speaker-ring').style.getPropertyValue('--peak-level'));
+
+    expect(bar).toBeLessThan(0.9);
+    expect(ring).toBeCloseTo(bar, 3);
+  });
+
+  /** One sink unmounting must not reset the level the other one is still reading. */
+  it('keeps a session alive while any sink still reads it', () => {
+    const OptionalMeter = ({ hasMeter }: { hasMeter: boolean }) => {
+      const stream = usePeakStream();
+
+      return (
+        <>
+          {hasMeter && <PeakMeter sessionId={sessionId} stream={stream} />}
+          <SpeakerRing sessionId={sessionId} stream={stream} />
+        </>
+      );
+    };
+
+    const { rerender } = render(<OptionalMeter hasMeter />);
+
+    emitPeaks([{ sessionId, peak: 0.8 }]);
+    advanceOneFrame();
+
+    rerender(<OptionalMeter hasMeter={false} />);
+    advanceOneFrame();
+
+    expect(Number(screen.getByTestId('speaker-ring').style.getPropertyValue('--peak-level'))).toBeGreaterThan(0);
   });
 
   it('stops tracking a row once it unmounts', () => {

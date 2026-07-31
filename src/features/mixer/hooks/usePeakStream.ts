@@ -15,20 +15,31 @@ import type { SessionId, SessionPeak } from '@/types/ipc';
  * The loop is also what interpolates: Rust emits at 30 Hz, the UI decays between frames so the
  * fall reads smoothly at 60 fps.
  */
+
+/**
+ * How a registered element consumes the level.
+ *
+ * `meter` owns the whole element and drives it with `transform`. `level` publishes the level as a
+ * `--peak-level` custom property and leaves the visual mapping to CSS, so an element whose
+ * transform belongs to the stylesheet can still react to audio.
+ */
+export type PeakSink = 'meter' | 'level';
+
 export interface PeakStream {
-  /** Registers a bar element. Returns an unregister function for cleanup. */
-  register: (sessionId: SessionId, element: HTMLElement | null) => () => void;
+  /** Registers an element. Returns an unregister function for cleanup. */
+  register: (sessionId: SessionId, element: HTMLElement | null, sink?: PeakSink) => () => void;
 }
 
-interface BarRegistration {
-  element: HTMLElement;
+interface SinkRegistration {
+  sessionId: SessionId;
+  sink: PeakSink;
   band: MeterBand | null;
 }
 
 export const usePeakStream = (): PeakStream => {
   const incoming = useRef(new Map<SessionId, number>());
   const displayed = useRef(new Map<SessionId, number>());
-  const bars = useRef(new Map<SessionId, BarRegistration>());
+  const sinks = useRef(new Map<HTMLElement, SinkRegistration>());
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -57,25 +68,39 @@ export const usePeakStream = (): PeakStream => {
     let frame = 0;
     let previousTimestamp: number | undefined;
 
+    // Reused rather than allocated per frame. A session with several sinks must decay exactly
+    // once per frame, or the second sink would read a level that fell twice.
+    const painted = new Map<SessionId, number>();
+
     const paint = (timestamp: number) => {
       const elapsedMs = previousTimestamp === undefined ? 0 : timestamp - previousTimestamp;
       previousTimestamp = timestamp;
+      painted.clear();
 
-      for (const [sessionId, registration] of bars.current) {
-        const target = incoming.current.get(sessionId) ?? 0;
-        const level = decayPeak(displayed.current.get(sessionId) ?? 0, target, elapsedMs);
+      for (const [element, registration] of sinks.current) {
+        let level = painted.get(registration.sessionId);
 
-        displayed.current.set(sessionId, level);
+        if (level === undefined) {
+          const target = incoming.current.get(registration.sessionId) ?? 0;
 
-        // scaleX only. Animating width would trigger layout every frame, and a CSS transition
-        // here would smear the signal.
-        registration.element.style.transform = `scaleX(${level.toString()})`;
+          level = decayPeak(displayed.current.get(registration.sessionId) ?? 0, target, elapsedMs);
+          displayed.current.set(registration.sessionId, level);
+          painted.set(registration.sessionId, level);
+        }
+
+        if (registration.sink === 'meter') {
+          // scaleX only. Animating width would trigger layout every frame, and a CSS transition
+          // here would smear the signal.
+          element.style.transform = `scaleX(${level.toString()})`;
+        } else {
+          element.style.setProperty('--peak-level', level.toFixed(3));
+        }
 
         const band = meterBand(level);
 
         if (band !== registration.band) {
           registration.band = band;
-          registration.element.dataset.band = band;
+          element.dataset.band = band;
         }
       }
 
@@ -89,17 +114,31 @@ export const usePeakStream = (): PeakStream => {
     };
   }, []);
 
-  const register = useCallback((sessionId: SessionId, element: HTMLElement | null) => {
-    if (element) {
-      bars.current.set(sessionId, { element, band: null });
-    }
+  const register = useCallback(
+    (sessionId: SessionId, element: HTMLElement | null, sink: PeakSink = 'meter') => {
+      if (element) {
+        sinks.current.set(element, { sessionId, sink, band: null });
+      }
 
-    return () => {
-      bars.current.delete(sessionId);
-      displayed.current.delete(sessionId);
-      incoming.current.delete(sessionId);
-    };
-  }, []);
+      return () => {
+        if (element) {
+          sinks.current.delete(element);
+        }
+
+        // The level survives while any sink still reads it. Dropping it when the first of a row's
+        // two sinks unmounts would reset the other one to silence mid-signal.
+        for (const registration of sinks.current.values()) {
+          if (registration.sessionId === sessionId) {
+            return;
+          }
+        }
+
+        displayed.current.delete(sessionId);
+        incoming.current.delete(sessionId);
+      };
+    },
+    [],
+  );
 
   return { register };
 };
