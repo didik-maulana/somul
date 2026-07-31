@@ -15,6 +15,7 @@ use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
 use crate::commands::AudioState;
 
 const TOGGLE_ITEM_ID: &str = "toggle-panel";
+const TRAY_ID: &str = "somul-tray";
 
 /// Where the panel should hang from: the horizontal centre of the tray icon and its lower edge,
 /// in the global coordinate space that spans every display.
@@ -89,7 +90,7 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> bool {
         return false;
     };
 
-    TrayIconBuilder::with_id("somul-tray")
+    TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
         .tooltip("Somul")
         .menu(&menu)
@@ -116,13 +117,39 @@ pub fn register<R: Runtime>(app: &AppHandle<R>) -> bool {
 
 /// Records where the tray icon sits, from the click that just happened.
 ///
-/// The rect arrives in whichever unit the platform reports, so it is normalised to physical
-/// pixels against the panel's scale factor — mixing logical and physical coordinates across a
-/// Retina and a non-Retina display puts the panel roughly twice as far from the tray as intended.
+/// Only a fallback: [`tray_anchor`] asks the icon directly, and a click is the one moment a
+/// platform that cannot answer that question still reports the rect.
 fn remember_tray_anchor<R: Runtime>(app: &AppHandle<R>, rect: &tauri::Rect) {
-    let Some(state) = app.try_state::<PanelState>() else {
-        return;
-    };
+    if let Some(state) = app.try_state::<PanelState>() {
+        state.set_tray_anchor(anchor_from_rect(app, rect));
+    }
+}
+
+/// Where the panel should hang from right now.
+///
+/// Asked of the tray icon rather than remembered from a click, because a click is not the only
+/// way the panel opens: the hotkey, the tray menu, and a second launch all reach [`show_panel`]
+/// without one. Reading only the stored anchor left those paths with nothing to position against
+/// on the first open, so the panel appeared wherever the window builder had left it — the middle
+/// of the primary display — and only moved to the tray once the icon had been clicked at least
+/// once. Asking every time also keeps the anchor honest when the menu bar's layout shifts.
+///
+/// The stored anchor remains the fallback for a platform that cannot report the rect on demand.
+fn tray_anchor<R: Runtime>(app: &AppHandle<R>) -> Option<TrayAnchor> {
+    let live = app
+        .tray_by_id(TRAY_ID)
+        .and_then(|tray| tray.rect().ok().flatten())
+        .map(|rect| anchor_from_rect(app, &rect));
+
+    live.or_else(|| app.try_state::<PanelState>().and_then(|state| state.tray_anchor()))
+}
+
+/// Reduces a tray rect to the point the panel hangs from, in physical pixels.
+///
+/// The rect arrives in whichever unit the platform reports, so it is normalised against the
+/// panel's scale factor — mixing logical and physical coordinates across a Retina and a
+/// non-Retina display puts the panel roughly twice as far from the tray as intended.
+fn anchor_from_rect<R: Runtime>(app: &AppHandle<R>, rect: &tauri::Rect) -> TrayAnchor {
     let scale = panel(app)
         .and_then(|panel| panel.scale_factor().ok())
         .unwrap_or(1.0);
@@ -130,13 +157,10 @@ fn remember_tray_anchor<R: Runtime>(app: &AppHandle<R>, rect: &tauri::Rect) {
     let position = rect.position.to_physical::<f64>(scale);
     let size = rect.size.to_physical::<f64>(scale);
 
-    let anchor = TrayAnchor {
+    TrayAnchor {
         center_x: position.x + size.width / 2.0,
         bottom_y: position.y + size.height,
-    };
-
-
-    state.set_tray_anchor(anchor);
+    }
 }
 
 /// Centres a panel of `panel_width` under `center_x`, held inside the display when one is known.
@@ -205,7 +229,7 @@ pub fn show_panel<R: Runtime>(panel: &WebviewWindow<R>) {
     // front of the user.
     resync_master(app);
 
-    if let Some(anchor) = app.try_state::<PanelState>().and_then(|state| state.tray_anchor()) {
+    if let Some(anchor) = tray_anchor(app) {
         position_under_tray(panel, anchor);
     }
 
