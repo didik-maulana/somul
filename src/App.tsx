@@ -29,7 +29,6 @@ export const App: FC = () => {
 
   const [isShowingSettings, setIsShowingSettings] = useState(false);
   const settings = useSettings();
-  const isPinned = settings.settings?.isPanelPinned ?? false;
 
   const draggingSessionIds = useAudioStore((state) => state.draggingSessionIds);
   const isDraggingMaster = useAudioStore((state) => state.isDraggingMaster);
@@ -87,18 +86,6 @@ export const App: FC = () => {
     <PanelShell
       header={
         <PanelHeader
-          isPinned={isPinned}
-          onPinToggle={() => {
-            // Routed through persisted settings, the same path the settings toggle uses. Two
-            // separate sources for one boolean is why the icon never changed and the two
-            // controls disagreed.
-            if (settings.settings) {
-              settings.change({
-                ...settings.settings,
-                isPanelPinned: !isPinned,
-              });
-            }
-          }}
           onSettingsOpen={() => {
             setIsShowingSettings((isShowing) => !isShowing);
           }}

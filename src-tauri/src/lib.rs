@@ -98,12 +98,9 @@ pub fn run() {
             let has_tray = tray::register(app.handle());
             build_panel(app.handle(), has_tray)?;
 
-            // Settings are applied here rather than left to the UI: the hotkey and the pin have
-            // to work before the panel is ever opened, and the panel is what would otherwise
-            // apply them.
+            // Settings are applied here rather than left to the UI: the hotkey has to work before
+            // the panel is ever opened, and the panel is what would otherwise apply it.
             let stored = settings::load(app.handle());
-
-            tray::apply_pin(app.handle(), stored.is_panel_pinned);
 
             // A hotkey another app already owns is a degraded state, not a startup failure — the
             // status is kept so the settings view can warn about it.
@@ -131,14 +128,20 @@ fn build_panel(app: &AppHandle, has_tray: bool) -> tauri::Result<WebviewWindow> 
         .resizable(false)
         .skip_taskbar(has_tray)
         .always_on_top(has_tray)
-        // Spaces are handled natively on macOS, and depend on the pin — see
-        // `set_macos_collection_behavior`. This flag is the unconditional form of the pinned
-        // behaviour, so setting it here would make every panel behave as though pinned.
+        // Spaces are handled natively on macOS — see `set_macos_collection_behavior`. This flag
+        // would put a copy of the panel on every Space, which is the opposite of a popover that
+        // dismisses the moment you move away from it.
         .visible_on_all_workspaces(false)
         .transparent(true)
         .build()?;
 
     apply_surface_blur(&panel);
+
+    #[cfg(target_os = "macos")]
+    {
+        set_macos_collection_behavior(&panel);
+        dismiss_when_user_leaves(&panel);
+    }
 
     Ok(panel)
 }
@@ -153,9 +156,9 @@ fn apply_surface_blur(panel: &WebviewWindow) {
         // `Popover` follows the system appearance; `HudWindow` is a permanently dark HUD
         // material, which is why the light theme came out grey no matter what the palette said.
         // `Active` rather than the default `FollowsWindowActiveState`. Left to follow, macOS
-        // desaturates the material whenever the panel is not key, so a pinned panel visibly
-        // changes colour the moment you click the app you are adjusting — most obvious in light
-        // theme. The panel's surface should not depend on which window has focus.
+        // desaturates the material whenever the panel is not key, so the panel would visibly
+        // change colour as it fades out — most obvious in light theme. Its surface should not
+        // depend on which window has focus.
         let _ = window_vibrancy::apply_vibrancy(
             panel,
             window_vibrancy::NSVisualEffectMaterial::Popover,
@@ -189,9 +192,7 @@ fn apply_surface_blur(panel: &WebviewWindow) {
 /// Every AppKit tweak below needs the same three lines — fetch the handle, reject a missing one,
 /// cast — so they live here once rather than three times over.
 #[cfg(target_os = "macos")]
-fn macos_window<R: tauri::Runtime>(
-    panel: &WebviewWindow<R>,
-) -> Option<&objc2_app_kit::NSWindow> {
+fn macos_window<R: tauri::Runtime>(panel: &WebviewWindow<R>) -> Option<&objc2_app_kit::NSWindow> {
     let handle = panel.ns_window().ok()?;
 
     if handle.is_null() {
@@ -202,6 +203,64 @@ fn macos_window<R: tauri::Runtime>(
     // as long as the window exists — so the borrow cannot outlive it. Callers are on the main
     // thread: `setup` runs there, and so do synchronous `#[tauri::command]` handlers.
     Some(unsafe { &*handle.cast::<objc2_app_kit::NSWindow>() })
+}
+
+/// Dismisses the panel when the user moves away from it — to another application, or to another
+/// desktop.
+///
+/// The dismiss used to hang off the window's own `Focused(false)`, which is a much noisier signal
+/// than it looks. On a multi-display setup macOS resigns the panel's key status merely for moving
+/// the pointer onto another screen, so the panel closed itself when the user had done nothing but
+/// look away — and an application switch produced a burst of focus changes rather than one.
+///
+/// Resigning *active* is the event that actually means "the user has gone somewhere else": it
+/// fires for a click on another app or on the desktop, and for Cmd-Tab, but never for a pointer
+/// crossing a screen boundary. Leaving for another desktop is a second, separate signal — see
+/// below — because it changes no application's activation at all.
+#[cfg(target_os = "macos")]
+fn dismiss_when_user_leaves(panel: &WebviewWindow) {
+    use objc2_app_kit::NSApplicationDidResignActiveNotification;
+    use objc2_foundation::NSNotificationCenter;
+
+    let on_resign = panel.clone();
+    let on_space_change = panel.clone();
+
+    let resigned = unsafe {
+        NSNotificationCenter::defaultCenter().addObserverForName_object_queue_usingBlock(
+            Some(NSApplicationDidResignActiveNotification),
+            None,
+            None,
+            &block2::RcBlock::new(move |_: core::ptr::NonNull<objc2_foundation::NSNotification>| {
+                tray::dismiss_on_resign_active(&on_resign);
+            }),
+        )
+    };
+
+    // Switching desktop is the other way of leaving the panel behind, and it is not an activation
+    // change — the frontmost application need not change, so nothing resigns. Without this the
+    // panel would stay open on the desktop it was left on, waiting to be found again.
+    //
+    // Space notifications come from the workspace's own centre, not the default one.
+    let space_changed = unsafe {
+        objc2_app_kit::NSWorkspace::sharedWorkspace()
+            .notificationCenter()
+            .addObserverForName_object_queue_usingBlock(
+                Some(objc2_app_kit::NSWorkspaceActiveSpaceDidChangeNotification),
+                None,
+                None,
+                &block2::RcBlock::new(
+                    move |_: core::ptr::NonNull<objc2_foundation::NSNotification>| {
+                        tray::dismiss_on_desktop_change(&on_space_change);
+                    },
+                ),
+            )
+    };
+
+    // Observers live only while something holds them, and these have to outlive every caller —
+    // they are the panel's dismiss for the whole run. There is no later point that would remove
+    // them, so both registrations are deliberately never released.
+    std::mem::forget(resigned);
+    std::mem::forget(space_changed);
 }
 
 fn round_macos_window_corners(panel: &WebviewWindow) {
@@ -226,36 +285,87 @@ fn round_macos_window_corners(panel: &WebviewWindow) {
     window.invalidateShadow();
 }
 
-/// Decides which Spaces the panel exists on. This is the whole meaning of the pin.
+/// Decides which Spaces the panel exists on — the standard menu-bar popover arrangement.
 ///
-/// - **Unpinned** uses `moveToActiveSpace`: an ordinary window living on one Space. Switch away
-///   and it is simply not on the Space you moved to; switch back and it is still open. The flag
-///   matters when reopening from the tray on a different Space — without it macOS drags *you* to
-///   whichever Space the window last sat on instead of bringing the window to you.
-/// - **Pinned** uses `canJoinAllSpaces`: a copy on every Space, so it follows you everywhere.
-///   That ride-along is the point when pinned, and it is the reason the unpinned case must not
-///   use it — a window on every Space visibly slides with the desktop during the transition.
+/// `moveToActiveSpace` was the obvious choice and was wrong. It does not merely decide where the
+/// panel *reopens*: while the panel is on screen, activating an application on another Space has
+/// the window server pick the window up and carry it there, and that migration is animated, so
+/// the panel visibly slid away rather than fading. None of that shows up in `frame` — AppKit
+/// reports the window where it was put while the compositor draws it elsewhere.
 ///
-/// `fullScreenAuxiliary` applies either way, so the panel can sit over a fullscreen app —
-/// adjusting audio during fullscreen video is exactly when a mixer is wanted.
+/// `canJoinAllSpaces` was the obvious answer to that and is wrong for the opposite reason: a
+/// window that exists on *every* Space is drawn on the desktop you are sliding towards as well as
+/// the one you are leaving, so a three-finger swipe made the panel flash across the transition.
+///
+/// So neither flag. An ordinary managed window belongs to the Space it was opened on: nothing
+/// carries it anywhere, and nothing draws it on a desktop it does not belong to. Leaving it
+/// behind is not a problem, because moving to another desktop dismisses it outright — see
+/// `dismiss_when_user_leaves`.
+///
+/// `fullScreenAuxiliary` stays, so the panel can sit over a fullscreen app — adjusting audio
+/// during fullscreen video is exactly when a mixer is wanted.
 #[cfg(target_os = "macos")]
-pub fn set_macos_collection_behavior<R: tauri::Runtime>(
-    panel: &WebviewWindow<R>,
-    is_pinned: bool,
-) {
+pub fn set_macos_collection_behavior<R: tauri::Runtime>(panel: &WebviewWindow<R>) {
     use objc2_app_kit::NSWindowCollectionBehavior;
 
     let Some(window) = macos_window(panel) else {
         return;
     };
 
-    let across_spaces = if is_pinned {
-        NSWindowCollectionBehavior::CanJoinAllSpaces
-    } else {
-        NSWindowCollectionBehavior::MoveToActiveSpace
+    window.setCollectionBehavior(NSWindowCollectionBehavior::FullScreenAuxiliary);
+}
+
+/// Sets the window's opacity, which is what the dismiss animates.
+///
+/// Must be called on the main thread — [`tray::hide_panel`] posts it there.
+#[cfg(target_os = "macos")]
+pub fn set_macos_window_alpha<R: tauri::Runtime>(panel: &WebviewWindow<R>, alpha: f64) {
+    if let Some(window) = macos_window(panel) {
+        window.setAlphaValue(alpha);
+    }
+}
+
+/// Places the panel's top-left corner at a point given in Tauri's physical global space.
+///
+/// `set_position` cannot do this reliably across displays. It interprets even a `PhysicalPosition`
+/// as logical and scales it by whichever display the window *currently* occupies, so moving to a
+/// display with a different scale took two calls and trusted that AppKit had reassigned the
+/// window's screen in between. That reassignment is not synchronous: when it lagged, the second
+/// call rescaled by the old factor and threw the window far off-screen, and macOS clamped it to a
+/// corner of the nearest display.
+///
+/// AppKit's own space has no such ambiguity — points, y upward, origin at the bottom left of the
+/// menu-bar screen — so the frame is computed once and set once.
+///
+/// Must be called on the main thread; [`tray::show_panel`] posts it there.
+#[cfg(target_os = "macos")]
+pub fn place_macos_panel<R: tauri::Runtime>(
+    panel: &WebviewWindow<R>,
+    x_physical: f64,
+    top_physical: f64,
+    scale: f64,
+) {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSScreen;
+    use objc2_foundation::NSPoint;
+
+    let Some(window) = macos_window(panel) else {
+        return;
+    };
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
     };
 
-    window.setCollectionBehavior(across_spaces | NSWindowCollectionBehavior::FullScreenAuxiliary);
+    // `screens[0]` is the screen carrying the menu bar, and AppKit measures every other screen
+    // from its bottom-left corner. Tauri measures from the *top* left of the same screen, so its
+    // height is the whole conversion between the two.
+    let Some(primary) = NSScreen::screens(mtm).firstObject() else {
+        return;
+    };
+
+    let top = primary.frame().size.height - top_physical / scale;
+
+    window.setFrameOrigin(NSPoint::new(x_physical / scale, top - PANEL_HEIGHT));
 }
 
 /// Points the window's own appearance at light or dark.

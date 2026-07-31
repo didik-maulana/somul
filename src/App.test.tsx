@@ -19,7 +19,6 @@ const settings: AppSettings = {
   hotkey: 'CmdOrCtrl+Shift+V',
   theme: 'system',
   shouldLaunchAtLogin: false,
-  isPanelPinned: false,
   routingPresets: {},
   volumeMemory: {},
 };
@@ -48,7 +47,6 @@ vi.mock('@/lib/ipc', () => ({
   setMasterMute: () => Promise.resolve(),
   setSessionMute: () => Promise.resolve(),
   setDefaultOutputDevice: () => Promise.resolve(),
-  setPanelPinned: () => Promise.resolve(),
   setHotkeyCapture: () => Promise.resolve(),
   onPeaks: () => Promise.resolve(() => undefined),
   onSessionsChanged: () => Promise.resolve(() => undefined),
@@ -107,47 +105,6 @@ describe('App', () => {
 
     expect(screen.getByTestId('master-volume-card')).toBeInTheDocument();
     expect(screen.queryByTestId('settings-view')).not.toBeInTheDocument();
-  });
-
-  /**
-   * The header pin and the settings toggle are one boolean. They were two — the header wrote to
-   * a local store while displaying the persisted value, so the icon never changed and the two
-   * controls disagreed.
-   */
-  it('updates the pin icon when it is toggled', async () => {
-    const user = userEvent.setup();
-
-    render(<App />);
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Show on all desktops' })).toBeInTheDocument();
-    });
-
-    await user.click(screen.getByRole('button', { name: 'Show on all desktops' }));
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Show on this desktop only' })).toBeInTheDocument();
-    });
-  });
-
-  it('keeps the header pin and the settings toggle in step', async () => {
-    const user = await openSettings();
-
-    const toggle = screen.getByRole('switch', { name: 'Show on all desktops' });
-    expect(toggle).toHaveAttribute('aria-checked', 'false');
-
-    await user.click(toggle);
-
-    await waitFor(() => {
-      expect(screen.getByRole('switch', { name: 'Show on all desktops' })).toHaveAttribute(
-        'aria-checked',
-        'true',
-      );
-    });
-
-    // Back on the mixer, the header must agree with what settings just set.
-    await user.click(screen.getByRole('button', { name: 'Back to mixer' }));
-
-    expect(screen.getByRole('button', { name: 'Show on this desktop only' })).toBeInTheDocument();
   });
 
   it('writes nothing to the system volume just by opening settings', async () => {

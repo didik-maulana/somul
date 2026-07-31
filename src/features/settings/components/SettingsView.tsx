@@ -98,16 +98,6 @@ export const SettingsView: FC<SettingsViewProps> = ({
             }}
           />
         </Row>
-
-        <Row label="Show on all desktops" hint="Stay visible when you switch desktops">
-          <Switch
-            checked={settings.isPanelPinned}
-            aria-label="Show on all desktops"
-            onCheckedChange={(isPanelPinned) => {
-              onSettingsChange({ ...settings, isPanelPinned });
-            }}
-          />
-        </Row>
       </div>
 
       {hotkeyWarning && (

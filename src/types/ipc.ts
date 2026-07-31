@@ -100,7 +100,6 @@ export interface AppSettings {
   hotkey: string;
   theme: Theme;
   shouldLaunchAtLogin: boolean;
-  isPanelPinned: boolean;
   /** processName -> deviceId. Reserved for per-app routing. */
   routingPresets: Record<string, string>;
   /** processName -> last volume scalar 0.0-1.0. */

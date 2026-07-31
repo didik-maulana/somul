@@ -5,8 +5,9 @@
 //! reports failure instead of aborting so a desktop without tray support can fall back to a
 //! normal decorated window.
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -17,6 +18,33 @@ use crate::commands::AudioState;
 const TOGGLE_ITEM_ID: &str = "toggle-panel";
 const TRAY_ID: &str = "somul-tray";
 
+/// Clicking the tray while the panel is open takes focus away from it first, so the focus-loss
+/// rule hides the panel *before* the click event arrives. A toggle would then see a hidden panel
+/// and reopen it, and the panel could never be dismissed from the tray.
+///
+/// Within this window, a toggle treats the panel as still open and leaves it closed.
+const FOCUS_HIDE_GRACE: Duration = Duration::from_millis(300);
+
+/// Opening the panel activates the application, and the activation can flap for a moment before
+/// it settles. A dismiss arriving inside this window is that flap rather than the user leaving,
+/// and acting on it would hide the panel the instant it appeared.
+///
+/// Deliberately short. At 400 ms it also swallowed genuine dismisses from a user who opened the
+/// panel and switched window straight away.
+const SHOW_SETTLE: Duration = Duration::from_millis(120);
+
+/// How long the panel takes to fade away when it is dismissed.
+///
+/// Short enough that the panel is gone by the time attention has moved to whatever was clicked,
+/// long enough to read as the window receding rather than being cut. Cutting the window straight
+/// to hidden is what made an ordinary click outside feel like a glitch.
+#[cfg(all(target_os = "macos", not(test)))]
+const DISMISS_DURATION: Duration = Duration::from_millis(140);
+
+/// Alpha steps across [`DISMISS_DURATION`]. Enough that the ramp reads as continuous at 60 Hz
+/// without posting a main-thread task per frame.
+const DISMISS_STEPS: u32 = 10;
+
 /// Where the panel should hang from: the horizontal centre of the tray icon and its lower edge,
 /// in the global coordinate space that spans every display.
 #[derive(Clone, Copy)]
@@ -25,20 +53,76 @@ pub struct TrayAnchor {
     pub bottom_y: f64,
 }
 
-/// Panel interaction state: the user's pin, and the tray anchor the panel positions against.
+/// Panel interaction state: the tray anchor the panel positions against, the timestamps that keep
+/// the show and the focus-loss dismiss from fighting each other, and the in-flight fade.
 #[derive(Default)]
 pub struct PanelState {
-    is_pinned: AtomicBool,
     tray_anchor: Mutex<Option<TrayAnchor>>,
+    last_focus_hide: Mutex<Option<Instant>>,
+    last_shown: Mutex<Option<Instant>>,
+    is_dismissing: AtomicBool,
+    /// Bumped on every show, so a fade still running knows it has been superseded and must not
+    /// carry on dimming a panel the user has just reopened.
+    show_generation: AtomicU64,
 }
 
 impl PanelState {
-    pub fn is_pinned(&self) -> bool {
-        self.is_pinned.load(Ordering::Acquire)
+    fn instant(slot: &Mutex<Option<Instant>>) -> std::sync::MutexGuard<'_, Option<Instant>> {
+        slot.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    pub fn set_pinned(&self, is_pinned: bool) {
-        self.is_pinned.store(is_pinned, Ordering::Release);
+    /// True once a dismiss has begun, for as long as the fade is still running.
+    ///
+    /// The window is still on screen throughout, so `is_visible` alone would call a fading panel
+    /// open and a tray click would try to dismiss it a second time.
+    fn is_dismissing(&self) -> bool {
+        self.is_dismissing.load(Ordering::Acquire)
+    }
+
+    /// Claims the dismiss, returning the generation the fade must stay on to remain current.
+    /// `None` when a fade is already running, so a second dismiss does not start a second one.
+    fn begin_dismiss(&self) -> Option<u64> {
+        self.is_dismissing
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .ok()
+            .map(|_| self.show_generation.load(Ordering::Acquire))
+    }
+
+    fn end_dismiss(&self) {
+        self.is_dismissing.store(false, Ordering::Release);
+    }
+
+    /// True when the panel has been shown since `generation` was taken — the fade holding it is
+    /// stale and must leave the window alone.
+    fn is_superseded(&self, generation: u64) -> bool {
+        self.show_generation.load(Ordering::Acquire) != generation
+    }
+
+    fn record_shown(&self) {
+        self.show_generation.fetch_add(1, Ordering::AcqRel);
+        self.end_dismiss();
+        *Self::instant(&self.last_shown) = Some(Instant::now());
+    }
+
+    /// True while the panel is still settling into key focus after being shown.
+    fn is_settling(&self) -> bool {
+        Self::instant(&self.last_shown).is_some_and(|at| at.elapsed() < SHOW_SETTLE)
+    }
+
+    fn record_focus_hide(&self) {
+        *Self::instant(&self.last_focus_hide) = Some(Instant::now());
+    }
+
+    /// True when a focus-loss dismiss just fired — i.e. this click is a dismiss, not a reopen.
+    fn has_just_hidden_on_focus_loss(&self) -> bool {
+        let mut last = Self::instant(&self.last_focus_hide);
+
+        let is_recent = last.is_some_and(|at| at.elapsed() < FOCUS_HIDE_GRACE);
+
+        // Consumed either way: a stale timestamp must not suppress the next genuine open.
+        *last = None;
+
+        is_recent
     }
 
     fn tray_anchor(&self) -> Option<TrayAnchor> {
@@ -54,27 +138,14 @@ impl PanelState {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(anchor);
     }
-
 }
 
-/// Records the pin and puts the window on every Space, or back on just one.
-///
-/// The stored flag and the window's collection behaviour have to move together: the flag is only
-/// a record, and the native call is the entire user-visible effect of pinning.
-pub fn apply_pin<R: Runtime>(app: &AppHandle<R>, is_pinned: bool) {
-    if let Some(state) = app.try_state::<PanelState>() {
-        state.set_pinned(is_pinned);
-    }
+/// The alpha a fade sits at `progress` of the way through, smoothstepped so it leaves 1.0 and
+/// arrives at 0.0 gently instead of starting and stopping abruptly.
+fn dismiss_alpha(progress: f64) -> f64 {
+    let progress = progress.clamp(0.0, 1.0);
 
-    // `not(test)` because the mock runtime the command tests use answers `ns_window` with a
-    // pointer to a dangling zero-sized value. Tauri dereferences it to find the enclosing window
-    // before this code sees it, so any AppKit call taken from a mock window kills the test binary
-    // with SIGSEGV rather than failing an assertion. The state half above is the part the tests
-    // assert on; the native half has no meaning without a real window behind it.
-    #[cfg(all(target_os = "macos", not(test)))]
-    if let Some(panel) = app.get_webview_window(crate::PANEL_LABEL) {
-        crate::set_macos_collection_behavior(&panel, is_pinned);
-    }
+    1.0 - progress * progress * (3.0 - 2.0 * progress)
 }
 
 /// Registers the tray icon and menu.
@@ -141,7 +212,10 @@ fn tray_anchor<R: Runtime>(app: &AppHandle<R>) -> Option<TrayAnchor> {
         .and_then(|tray| tray.rect().ok().flatten())
         .map(|rect| anchor_from_rect(app, &rect));
 
-    live.or_else(|| app.try_state::<PanelState>().and_then(|state| state.tray_anchor()))
+    live.or_else(|| {
+        app.try_state::<PanelState>()
+            .and_then(|state| state.tray_anchor())
+    })
 }
 
 /// Reduces a tray rect to the point the panel hangs from, in physical pixels.
@@ -204,24 +278,86 @@ fn panel<R: Runtime>(app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
     app.get_webview_window(crate::PANEL_LABEL)
 }
 
-/// The tray icon and the hotkey are the only things that close the panel, so this is a plain
-/// toggle. It used to need a grace period to tell "the user is dismissing an open panel" from
-/// "the user is reopening a closed one", because focus loss had already hidden the panel by the
-/// time the click arrived. Nothing hides on focus loss any more, so `is_visible` is the truth.
+/// Toggles the panel, treating a dismiss that has already happened as this click's work.
+///
+/// The panel dismisses on focus loss, and clicking the tray takes focus away from it first — so
+/// by the time the click arrives the panel is already going away. Reading `is_visible` alone
+/// would call that a reopen, and the panel could never be dismissed from the tray.
 pub fn toggle_panel<R: Runtime>(app: &AppHandle<R>) {
     let Some(panel) = panel(app) else {
         return;
     };
 
-    if panel.is_visible().unwrap_or(false) {
+    let state = app.try_state::<PanelState>();
+
+    let was_dismissed_by_this_click = state
+        .as_ref()
+        .is_some_and(|state| state.has_just_hidden_on_focus_loss());
+
+    // A fading panel is still on screen but on its way out, so it counts as closed. Otherwise a
+    // click landing mid-fade would ask for a second dismiss and the panel would never reopen.
+    let is_fading = state.as_ref().is_some_and(|state| state.is_dismissing());
+    let is_open = panel.is_visible().unwrap_or(false) && !is_fading;
+
+    if is_open {
         hide_panel(&panel);
-    } else {
+    } else if !was_dismissed_by_this_click {
         show_panel(&panel);
     }
 }
 
+/// Dismisses the panel because the user moved to another application.
+///
+/// Separate from [`hide_panel`] so the guards below apply only to this path — the tray, the
+/// hotkey and the menu are deliberate and must always be obeyed.
+pub fn dismiss_on_resign_active<R: Runtime>(panel: &WebviewWindow<R>) {
+    if leaving_is_premature(panel) {
+        return;
+    }
+
+    hide_panel(panel);
+}
+
+/// Dismisses the panel because the user moved to another desktop.
+///
+/// Without the fade, unlike every other dismiss. The Space transition is itself a half-second of
+/// sliding animation, and a panel dissolving *during* it does not read as a fade — it reads as
+/// the flicker the animation was already threatening to look like. Gone before the slide starts
+/// is the only thing that looks deliberate.
+pub fn dismiss_on_desktop_change<R: Runtime>(panel: &WebviewWindow<R>) {
+    if leaving_is_premature(panel) {
+        return;
+    }
+
+    finish_hide(panel);
+}
+
+/// Shared guard for the two "the user left" dismisses.
+///
+/// Records the dismiss as it allows one through, so a tray click arriving immediately afterwards
+/// can tell "the user dismissed this" from "the user wants it open".
+fn leaving_is_premature<R: Runtime>(panel: &WebviewWindow<R>) -> bool {
+    let Some(state) = panel.app_handle().try_state::<PanelState>() else {
+        return true;
+    };
+
+    // Opening the panel activates the application, and that can flap before it settles. Acting on
+    // a dismiss inside that window would hide the panel the instant it appeared.
+    if state.is_settling() {
+        return true;
+    }
+
+    state.record_focus_hide();
+
+    false
+}
+
 pub fn show_panel<R: Runtime>(panel: &WebviewWindow<R>) {
     let app = panel.app_handle();
+
+    if let Some(state) = app.try_state::<PanelState>() {
+        state.record_shown();
+    }
 
     // Before the window appears, not after. The system volume may have moved while the panel was
     // closed, and the WebView still holds the value from last time. Emitting first lets it repaint
@@ -229,12 +365,27 @@ pub fn show_panel<R: Runtime>(panel: &WebviewWindow<R>) {
     // front of the user.
     resync_master(app);
 
-    if let Some(anchor) = tray_anchor(app) {
+    let anchor = tray_anchor(app);
+
+    // Placed before the window appears, so it is never seen arriving at the wrong spot.
+    if let Some(anchor) = anchor {
         position_under_tray(panel, anchor);
     }
 
+    // A dismiss that was interrupted leaves the window part-way through its fade, and `show`
+    // alone would bring it back translucent or invisible. Restored before the window appears, so
+    // the panel is never seen at anything but full opacity.
+    restore_alpha(panel);
+
     let _ = panel.show();
     let _ = panel.set_focus();
+
+    // Placed a second time, after the window is on screen. Ordering a hidden window front can
+    // move it, and this call is cheap and idempotent. It is *not* a fix for the corner-placement
+    // defect — that is still open, and this does not close it.
+    if let Some(anchor) = anchor {
+        position_under_tray(panel, anchor);
+    }
 
     set_panel_visibility(app, true);
 }
@@ -246,11 +397,9 @@ pub fn show_panel<R: Runtime>(panel: &WebviewWindow<R>) {
 /// - the tray rect and `Monitor::position/size` are **physical** pixels
 /// - `monitor_from_point` expects **logical** points, so feeding it physical coordinates finds
 ///   nothing on a Retina display and silently skips the clamp
-/// - `set_position` treats even a `PhysicalPosition` as logical and scales it by the current
-///   monitor's factor, so a physical value lands at twice the intended offset on a Retina screen
 ///
-/// So the monitor is looked up by hand in physical space, and the final position is converted to
-/// logical against the *target* display's scale rather than whatever the window sits on now.
+/// So the monitor is looked up by hand in physical space, and the arithmetic stays in that space
+/// until [`place_panel`] hands it to whichever placement the platform can do reliably.
 fn position_under_tray<R: Runtime>(panel: &WebviewWindow<R>, anchor: TrayAnchor) {
     let Some(monitor) = monitor_containing(panel.app_handle(), anchor.center_x, anchor.bottom_y)
     else {
@@ -272,24 +421,35 @@ fn position_under_tray<R: Runtime>(panel: &WebviewWindow<R>, anchor: TrayAnchor)
         Some((f64::from(origin.x), f64::from(size.width))),
     );
 
-    // Converted against the target display, then applied twice. The first call carries the window
-    // onto that display; only then does `set_position` scale by the right factor, so the second
-    // call lands where it was asked to.
-    let logical = tauri::LogicalPosition::new(x / scale, anchor.bottom_y / scale);
+    place_panel(panel, x, anchor.bottom_y, scale);
+}
 
-    let _ = panel.set_position(logical);
-    let _ = panel.set_position(logical);
+/// Puts the panel's top-left corner at a physical global point, through AppKit.
+///
+/// Going native is what makes the placement deterministic — see [`crate::place_macos_panel`] for
+/// why `set_position` could not be trusted across displays.
+#[cfg(all(target_os = "macos", not(test)))]
+fn place_panel<R: Runtime>(panel: &WebviewWindow<R>, x: f64, top: f64, scale: f64) {
+    let panel = panel.clone();
+
+    let _ = panel
+        .app_handle()
+        .clone()
+        .run_on_main_thread(move || crate::place_macos_panel(&panel, x, top, scale));
+}
+
+/// Elsewhere, Tauri's own placement is all there is. It reads a logical position, so the physical
+/// point is converted against the display it is going to.
+#[cfg(not(all(target_os = "macos", not(test))))]
+fn place_panel<R: Runtime>(panel: &WebviewWindow<R>, x: f64, top: f64, scale: f64) {
+    let _ = panel.set_position(tauri::LogicalPosition::new(x / scale, top / scale));
 }
 
 /// Finds the display containing a point, in physical pixels.
 ///
 /// Done by hand because `monitor_from_point` takes logical points; mixing the two returns `None`
 /// on any display whose scale factor is not 1.
-fn monitor_containing<R: Runtime>(
-    app: &AppHandle<R>,
-    x: f64,
-    y: f64,
-) -> Option<tauri::Monitor> {
+fn monitor_containing<R: Runtime>(app: &AppHandle<R>, x: f64, y: f64) -> Option<tauri::Monitor> {
     let monitors = app.available_monitors().ok()?;
 
     monitors.into_iter().find(|monitor| {
@@ -305,10 +465,118 @@ fn monitor_containing<R: Runtime>(
     })
 }
 
+/// Dismisses the panel by fading it out, then taking it off the screen.
+///
+/// The fade is on the window's own alpha rather than anything in the WebView, because the
+/// wallpaper blur behind the panel is an AppKit view: fading the content in CSS would leave the
+/// blurred rectangle behind, which reads worse than no animation at all.
 pub fn hide_panel<R: Runtime>(panel: &WebviewWindow<R>) {
+    // With no state to coordinate through there is nothing to animate against, so the panel goes
+    // straight off the screen rather than not going at all.
+    let Some(state) = panel.app_handle().try_state::<PanelState>() else {
+        finish_hide(panel);
+        return;
+    };
+
+    // A fade already in flight is on its way to hidden; restarting it would only reset the ramp.
+    let Some(generation) = state.begin_dismiss() else {
+        return;
+    };
+
+    fade_out(panel, generation);
+}
+
+/// Runs the alpha ramp off the main thread, then hands the actual hide back to [`finish_hide`].
+///
+/// Off-thread because the ramp is mostly sleeping, and the main thread has a 60 fps meter to
+/// serve. Each step is a short task posted back to it, which is also the only place AppKit may be
+/// touched.
+#[cfg(all(target_os = "macos", not(test)))]
+fn fade_out<R: Runtime>(panel: &WebviewWindow<R>, generation: u64) {
+    let panel = panel.clone();
+
+    std::thread::spawn(move || {
+        for step in 1..=DISMISS_STEPS {
+            std::thread::sleep(DISMISS_DURATION / DISMISS_STEPS);
+
+            if is_superseded(&panel, generation) {
+                return;
+            }
+
+            apply_fade_step(
+                &panel,
+                dismiss_alpha(f64::from(step) / f64::from(DISMISS_STEPS)),
+                generation,
+            );
+        }
+
+        if !is_superseded(&panel, generation) {
+            finish_hide(&panel);
+        }
+    });
+}
+
+/// Without a window alpha to animate, a dismiss is the hide it always was.
+#[cfg(not(all(target_os = "macos", not(test))))]
+fn fade_out<R: Runtime>(panel: &WebviewWindow<R>, _generation: u64) {
+    finish_hide(panel);
+}
+
+/// True once the panel has been reopened since this fade started, which retires the fade.
+#[cfg(all(target_os = "macos", not(test)))]
+fn is_superseded<R: Runtime>(panel: &WebviewWindow<R>, generation: u64) -> bool {
+    panel
+        .app_handle()
+        .try_state::<PanelState>()
+        .is_some_and(|state| state.is_superseded(generation))
+}
+
+/// Takes the window off the screen and releases the dismiss.
+fn finish_hide<R: Runtime>(panel: &WebviewWindow<R>) {
     let _ = panel.hide();
 
     set_panel_visibility(panel.app_handle(), false);
+
+    if let Some(state) = panel.app_handle().try_state::<PanelState>() {
+        state.end_dismiss();
+    }
+}
+
+/// Dims the window one fade step, on the main thread where AppKit requires it.
+///
+/// The generation is re-checked *inside* the task rather than only before posting it. A step can
+/// be posted just as the panel is reopened, landing after the restore below and leaving the panel
+/// on screen but dimmed — checking at the point of application is what closes that window.
+///
+/// `not(test)` for the same reason as the rest of the native layer: the mock runtime answers
+/// `ns_window` with a pointer to a dangling zero-sized value, and Tauri dereferences it looking
+/// for the enclosing window, so an AppKit call reached from a mock window kills the test binary
+/// with SIGSEGV rather than failing an assertion.
+#[cfg(all(target_os = "macos", not(test)))]
+fn apply_fade_step<R: Runtime>(panel: &WebviewWindow<R>, alpha: f64, generation: u64) {
+    let panel = panel.clone();
+
+    let _ = panel.app_handle().clone().run_on_main_thread(move || {
+        if !is_superseded(&panel, generation) {
+            crate::set_macos_window_alpha(&panel, alpha);
+        }
+    });
+}
+
+/// Returns the window to full opacity, before it is shown.
+#[cfg(all(target_os = "macos", not(test)))]
+fn restore_alpha<R: Runtime>(panel: &WebviewWindow<R>) {
+    let panel = panel.clone();
+
+    let _ = panel
+        .app_handle()
+        .clone()
+        .run_on_main_thread(move || crate::set_macos_window_alpha(&panel, 1.0));
+}
+
+#[cfg(not(all(target_os = "macos", not(test))))]
+fn restore_alpha<R: Runtime>(panel: &WebviewWindow<R>) {
+    let _ = panel;
 }
 
 /// Pushes the current system output state to the WebView.
@@ -385,7 +653,10 @@ mod tests {
 
     #[test]
     fn holds_the_panel_inside_a_secondary_display_right_edge() {
-        assert_eq!(centered_under(4930.0, 360.0, Some((3024.0, 1920.0))), 4584.0);
+        assert_eq!(
+            centered_under(4930.0, 360.0, Some((3024.0, 1920.0))),
+            4584.0
+        );
     }
 
     #[test]
@@ -399,20 +670,58 @@ mod tests {
         assert_eq!(centered_under(150.0, 360.0, Some((0.0, 320.0))), 0.0);
     }
 
-    /// Unpinned is the ordinary single-Space window; the pin is what opts into every Space.
+    /// The fade leaves at full opacity and arrives at none, or the panel would jump at one end.
     #[test]
-    fn starts_unpinned() {
-        assert!(!PanelState::default().is_pinned());
+    fn the_dismiss_fade_spans_the_whole_alpha_range() {
+        assert_eq!(dismiss_alpha(0.0), 1.0);
+        assert_eq!(dismiss_alpha(1.0), 0.0);
     }
 
     #[test]
-    fn tracks_the_pin_toggle() {
-        let pin = PanelState::default();
+    fn the_dismiss_fade_falls_the_whole_way() {
+        let mut previous = dismiss_alpha(0.0);
 
-        pin.set_pinned(true);
-        assert!(pin.is_pinned());
+        for step in 1..=DISMISS_STEPS {
+            let alpha = dismiss_alpha(f64::from(step) / f64::from(DISMISS_STEPS));
 
-        pin.set_pinned(false);
-        assert!(!pin.is_pinned());
+            assert!(alpha < previous, "the fade stalled at step {step}");
+            previous = alpha;
+        }
+    }
+
+    /// Progress is a ratio of elapsed steps, so a value outside the range means arithmetic drift.
+    /// Clamping keeps that from reaching `setAlphaValue`, which would take it literally.
+    #[test]
+    fn the_dismiss_fade_holds_the_unit_range() {
+        assert_eq!(dismiss_alpha(-1.0), 1.0);
+        assert_eq!(dismiss_alpha(2.0), 0.0);
+    }
+
+    /// The panel is only ever dismissed once at a time: the second caller gets nothing to run,
+    /// so two fades cannot fight over the same alpha.
+    #[test]
+    fn only_one_dismiss_runs_at_a_time() {
+        let state = PanelState::default();
+
+        assert!(state.begin_dismiss().is_some());
+        assert!(state.begin_dismiss().is_none());
+
+        state.end_dismiss();
+        assert!(state.begin_dismiss().is_some());
+    }
+
+    /// Reopening mid-fade retires the fade, or it would carry on dimming the panel the user just
+    /// asked for and finish by hiding it.
+    #[test]
+    fn showing_the_panel_retires_a_running_dismiss() {
+        let state = PanelState::default();
+
+        let generation = state.begin_dismiss().expect("the first dismiss claims it");
+        assert!(!state.is_superseded(generation));
+
+        state.record_shown();
+
+        assert!(state.is_superseded(generation));
+        assert!(!state.is_dismissing(), "a show must release the dismiss");
     }
 }

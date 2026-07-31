@@ -64,7 +64,7 @@ describe('PanelHeader', () => {
 
   it('is the window drag region', () => {
     const { container } = render(
-      <PanelHeader isPinned={false} onPinToggle={noop} onSettingsOpen={noop} />,
+      <PanelHeader onSettingsOpen={noop} />,
     );
 
     expect(container.querySelector('header')).toHaveAttribute('data-tauri-drag-region');
@@ -72,48 +72,21 @@ describe('PanelHeader', () => {
 
   /** Without opting out of the drag region, dragging swallows the buttons' clicks. */
   it('opts its icon buttons out of the drag region', () => {
-    render(<PanelHeader isPinned={false} onPinToggle={noop} onSettingsOpen={noop} />);
+    render(<PanelHeader onSettingsOpen={noop} />);
 
     for (const button of screen.getAllByRole('button')) {
       expect(button).toHaveAttribute('data-tauri-drag-region', 'false');
     }
   });
 
-  it('names the pin control by the action it will take', () => {
-    const { rerender } = render(
-      <PanelHeader isPinned={false} onPinToggle={noop} onSettingsOpen={noop} />,
-    );
-
-    expect(screen.getByRole('button', { name: 'Show on all desktops' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
-
-    rerender(<PanelHeader isPinned onPinToggle={noop} onSettingsOpen={noop} />);
-
-    expect(screen.getByRole('button', { name: 'Show on this desktop only' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-  });
-
-  it('reports pin and settings activation', async () => {
+  it('reports settings activation', async () => {
     const user = userEvent.setup();
-    const handlePinToggle = vi.fn();
     const handleSettingsOpen = vi.fn();
 
-    render(
-      <PanelHeader
-        isPinned={false}
-        onPinToggle={handlePinToggle}
-        onSettingsOpen={handleSettingsOpen}
-      />,
-    );
+    render(<PanelHeader onSettingsOpen={handleSettingsOpen} />);
 
-    await user.click(screen.getByRole('button', { name: 'Show on all desktops' }));
     await user.click(screen.getByRole('button', { name: 'Open settings' }));
 
-    expect(handlePinToggle).toHaveBeenCalledOnce();
     expect(handleSettingsOpen).toHaveBeenCalledOnce();
   });
 });

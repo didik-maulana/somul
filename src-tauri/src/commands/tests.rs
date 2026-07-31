@@ -60,8 +60,7 @@ fn full_per_app() -> WebviewWindow<MockRuntime> {
 }
 
 fn first_session_id(webview: &WebviewWindow<MockRuntime>) -> String {
-    invoke(webview, "get_audio_sessions", json!({}))
-        .expect("sessions")[0]["sessionId"]
+    invoke(webview, "get_audio_sessions", json!({})).expect("sessions")[0]["sessionId"]
         .as_str()
         .expect("a session id")
         .to_owned()
@@ -82,7 +81,7 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
     let webview = full_per_app();
     let session_id = first_session_id(&webview);
 
-    let calls: [(&str, Value); 12] = [
+    let calls: [(&str, Value); 11] = [
         ("get_platform_capabilities", json!({})),
         ("get_audio_sessions", json!({})),
         (
@@ -106,7 +105,6 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
             json!({ "sessionId": session_id, "deviceId": "mock:headphones" }),
         ),
         ("set_panel_visibility", json!({ "isVisible": true })),
-        ("set_panel_pinned", json!({ "isPinned": true })),
         // The two settings commands are absent on purpose. They need the store plugin, and
         // giving the mock app a real store would have the suite reading and writing a
         // developer's saved settings — the same defect as a test that changes their volume.
@@ -227,8 +225,12 @@ fn the_master_only_shape_refuses_per_app_commands() {
 fn panel_visibility_is_the_only_command_that_touches_the_meter_gate() {
     let webview = full_per_app();
 
-    invoke(&webview, "set_panel_visibility", json!({ "isVisible": true }))
-        .expect("visibility write");
+    invoke(
+        &webview,
+        "set_panel_visibility",
+        json!({ "isVisible": true }),
+    )
+    .expect("visibility write");
 
     let state = webview.state::<AudioState>();
     assert!(state.is_panel_visible());
@@ -241,17 +243,4 @@ fn panel_visibility_is_the_only_command_that_touches_the_meter_gate() {
     .expect("visibility write");
 
     assert!(!state.is_panel_visible());
-}
-
-/// The command is what carries the pin to the backend that owns the window — a store-only toggle
-/// would light the button up and leave the panel on one desktop.
-#[test]
-fn pinning_reaches_the_backend_state() {
-    let webview = full_per_app();
-
-    invoke(&webview, "set_panel_pinned", json!({ "isPinned": true })).expect("pin");
-    assert!(webview.state::<crate::tray::PanelState>().is_pinned());
-
-    invoke(&webview, "set_panel_pinned", json!({ "isPinned": false })).expect("unpin");
-    assert!(!webview.state::<crate::tray::PanelState>().is_pinned());
 }

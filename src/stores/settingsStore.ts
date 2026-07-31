@@ -7,14 +7,12 @@ export interface SettingsState {
   hotkey: string;
   theme: Theme;
   shouldLaunchAtLogin: boolean;
-  isPanelPinned: boolean;
   /** Set when the hotkey could not be registered. The app stays usable through the tray. */
   hotkeyWarning: string | null;
 
   setHotkey: (hotkey: string) => void;
   setTheme: (theme: Theme) => void;
   setShouldLaunchAtLogin: (shouldLaunchAtLogin: boolean) => void;
-  setPanelPinned: (isPanelPinned: boolean) => void;
   setHotkeyWarning: (hotkeyWarning: string | null) => void;
 }
 
@@ -24,7 +22,6 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   hotkey: DEFAULT_HOTKEY,
   theme: 'system',
   shouldLaunchAtLogin: false,
-  isPanelPinned: false,
   hotkeyWarning: null,
 
   setHotkey: (hotkey) => {
@@ -35,9 +32,6 @@ export const useSettingsStore = create<SettingsState>()((set) => ({
   },
   setShouldLaunchAtLogin: (shouldLaunchAtLogin) => {
     set({ shouldLaunchAtLogin });
-  },
-  setPanelPinned: (isPanelPinned) => {
-    set({ isPanelPinned });
   },
   setHotkeyWarning: (hotkeyWarning) => {
     set({ hotkeyWarning });

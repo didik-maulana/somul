@@ -13,7 +13,6 @@ const settings: AppSettings = {
   hotkey: 'CmdOrCtrl+Shift+V',
   theme: 'system',
   shouldLaunchAtLogin: false,
-  isPanelPinned: false,
   routingPresets: {},
   volumeMemory: {},
 };
@@ -125,14 +124,6 @@ describe('SettingsView', () => {
     await user.click(screen.getByRole('switch', { name: 'Launch at login' }));
 
     expect(onSettingsChange).toHaveBeenCalledWith({ ...settings, shouldLaunchAtLogin: true });
-  });
-
-  it('reports the pin', async () => {
-    const { onSettingsChange, user } = renderView();
-
-    await user.click(screen.getByRole('switch', { name: 'Show on all desktops' }));
-
-    expect(onSettingsChange).toHaveBeenCalledWith({ ...settings, isPanelPinned: true });
   });
 
   /** A shortcut the OS refused must say so, or the user thinks it took. */

@@ -1,9 +1,8 @@
 //! Reading and writing persisted settings.
 //!
 //! Every setting has a side effect somewhere outside the store — the hotkey has to be registered
-//! with the OS, launch-at-login has to be toggled, the pin has to reach the window handler. The
-//! store is written only after those succeed, so a rejected change is never persisted as though
-//! it had worked.
+//! with the OS, launch-at-login has to be toggled. The store is written only after those succeed,
+//! so a rejected change is never persisted as though it had worked.
 
 use serde::Serialize;
 use tauri::{AppHandle, Runtime};
@@ -37,7 +36,6 @@ pub fn update_settings<R: Runtime>(
 
     let hotkey_warning = apply_hotkey(&app, &previous, &mut applied);
     apply_launch_at_login(&app, &previous, &applied);
-    apply_pin(&app, &applied);
 
     crate::settings::save(&app, &applied)?;
 
@@ -96,10 +94,6 @@ fn apply_launch_at_login<R: Runtime>(
 
     #[cfg(not(desktop))]
     let _ = app;
-}
-
-fn apply_pin<R: Runtime>(app: &AppHandle<R>, applied: &AppSettings) {
-    crate::tray::apply_pin(app, applied.is_panel_pinned);
 }
 
 /// Frees the global shortcut while the user records a replacement, and restores it afterwards.

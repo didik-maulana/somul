@@ -37,7 +37,6 @@ pub struct AppSettings {
     pub hotkey: String,
     pub theme: Theme,
     pub should_launch_at_login: bool,
-    pub is_panel_pinned: bool,
     /// processName -> deviceId (v1.1).
     pub routing_presets: BTreeMap<String, String>,
     /// processName -> last volume scalar.
@@ -51,7 +50,6 @@ impl Default for AppSettings {
             hotkey: DEFAULT_HOTKEY.to_owned(),
             theme: Theme::System,
             should_launch_at_login: false,
-            is_panel_pinned: false,
             routing_presets: BTreeMap::new(),
             volume_memory: BTreeMap::new(),
         }
@@ -75,7 +73,6 @@ pub fn migrate(mut stored: Map<String, Value>) -> Map<String, Value> {
         insert_missing(&mut stored, "hotkey", Value::from(defaults.hotkey));
         insert_missing(&mut stored, "theme", Value::from("system"));
         insert_missing(&mut stored, "shouldLaunchAtLogin", Value::from(false));
-        insert_missing(&mut stored, "isPanelPinned", Value::from(false));
         insert_missing(&mut stored, "routingPresets", Value::Object(Map::new()));
         insert_missing(&mut stored, "volumeMemory", Value::Object(Map::new()));
     }
@@ -114,10 +111,6 @@ pub fn from_stored(stored: &Map<String, Value>) -> AppSettings {
             .get("shouldLaunchAtLogin")
             .and_then(Value::as_bool)
             .unwrap_or(defaults.should_launch_at_login),
-        is_panel_pinned: stored
-            .get("isPanelPinned")
-            .and_then(Value::as_bool)
-            .unwrap_or(defaults.is_panel_pinned),
         routing_presets: string_map(stored.get("routingPresets")),
         volume_memory: scalar_map(stored.get("volumeMemory")),
     }
@@ -172,7 +165,9 @@ pub fn load<R: Runtime>(app: &AppHandle<R>) -> AppSettings {
 /// The stored map is migrated first so unknown keys survive the round trip — writing the struct
 /// alone would silently drop anything a newer build had written.
 pub fn save<R: Runtime>(app: &AppHandle<R>, settings: &AppSettings) -> Result<(), String> {
-    let store = app.store(SETTINGS_FILE).map_err(|error| error.to_string())?;
+    let store = app
+        .store(SETTINGS_FILE)
+        .map_err(|error| error.to_string())?;
 
     let mut merged: Map<String, Value> = migrate(store.entries().into_iter().collect());
     merged.extend(to_stored(settings));
@@ -214,7 +209,6 @@ mod tests {
         assert_eq!(settings.hotkey, "CmdOrCtrl+Shift+V");
         assert_eq!(settings.theme, Theme::System);
         assert!(!settings.should_launch_at_login);
-        assert!(!settings.is_panel_pinned);
         assert!(settings.routing_presets.is_empty());
         assert!(settings.volume_memory.is_empty());
     }
@@ -228,7 +222,6 @@ mod tests {
             "hotkey",
             "theme",
             "shouldLaunchAtLogin",
-            "isPanelPinned",
             "routingPresets",
             "volumeMemory",
         ] {
@@ -309,7 +302,10 @@ mod tests {
         let settings = from_stored(&migrated);
 
         assert_eq!(
-            settings.routing_presets.get("spotify.exe").map(String::as_str),
+            settings
+                .routing_presets
+                .get("spotify.exe")
+                .map(String::as_str),
             Some("device:headphones")
         );
         assert_eq!(settings.volume_memory.get("spotify.exe"), Some(&0.42));
@@ -355,7 +351,6 @@ mod tests {
             hotkey: "Alt+Shift+M".to_owned(),
             theme: Theme::Dark,
             should_launch_at_login: true,
-            is_panel_pinned: true,
             routing_presets: BTreeMap::from([("spotify.exe".to_owned(), "dev:1".to_owned())]),
             volume_memory: BTreeMap::from([("spotify.exe".to_owned(), 0.25)]),
             ..AppSettings::default()

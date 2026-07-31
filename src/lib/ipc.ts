@@ -148,16 +148,6 @@ export const setDefaultOutputDevice = (deviceId: DeviceId): Promise<void> =>
 export const setPanelVisibility = (isVisible: boolean): Promise<void> =>
   mutation('set_panel_visibility', { isVisible });
 
-/**
- * Puts the panel on every desktop, or back on just one.
- *
- * The panel stays open until the tray or the hotkey closes it either way. Unpinned it lives on
- * the desktop it was opened on; pinned it follows you, so an app's volume can be adjusted from
- * wherever that app is.
- */
-export const setPanelPinned = (isPinned: boolean): Promise<void> =>
-  mutation('set_panel_pinned', { isPinned });
-
 /** v1.1. Present for contract completeness; v1.0 backends reject it with `unsupported`. */
 export const setSessionOutputDevice = (
   sessionId: SessionId,

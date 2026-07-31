@@ -3502,9 +3502,11 @@ dependencies = [
 name = "somul"
 version = "1.0.0"
 dependencies = [
+ "block2",
  "coreaudio-sys",
  "objc2",
  "objc2-app-kit",
+ "objc2-foundation",
  "objc2-quartz-core",
  "serde",
  "serde_json",
