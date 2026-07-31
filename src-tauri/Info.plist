@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated Info.plist by the Tauri macOS bundler.
+
+  Process taps are gated behind the audio-capture TCC service. Without this string macOS refuses
+  the permission outright rather than prompting, and every tap fails with no way for the user to
+  grant what it needs.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Somul needs to capture app audio so it can set the volume of individual apps. Audio is mixed on this Mac and never recorded, stored, or sent anywhere.</string>
+  </dict>
+</plist>

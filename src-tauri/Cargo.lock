@@ -3504,6 +3504,7 @@ version = "1.0.0"
 dependencies = [
  "block2",
  "coreaudio-sys",
+ "libc",
  "objc2",
  "objc2-app-kit",
  "objc2-foundation",

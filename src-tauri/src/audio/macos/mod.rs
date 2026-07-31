@@ -1,14 +1,29 @@
-//! CoreAudio adapter — master volume, mute, and device selection.
+//! CoreAudio adapter — master volume, per-app volume, mute, metering, and device selection.
 //!
 //! CoreAudio has no equivalent of Windows' `ISimpleAudioVolume`: no API sets another process's
-//! volume. Per-app control is achievable only through Core Audio process taps, which put the app
-//! inside the realtime render path and are deferred to a later release. Every per-app method
-//! here therefore returns [`AudioError::Unsupported`], carrying the reason the UI renders
-//! verbatim to the user.
+//! volume. The per-app path is therefore not a setter at all. Each app is captured by a muted
+//! process tap and re-rendered by [`engine`] at the gain the user picked, which means Somul is in
+//! the render path for every app it controls.
+//!
+//! That has a consequence worth stating here rather than burying in [`engine`]: per-app control
+//! is a capability this adapter *earns at runtime*, not one it has. It needs macOS 14.2 or later
+//! and the audio-capture permission, and the user can revoke the second at any time. So
+//! [`AudioBackend::capabilities`] reports what the engine actually managed to do, and falls back
+//! to master-only with a reason the panel renders verbatim.
+//!
+//! The master path below predates all of this and is untouched by it: it drives the default
+//! output device directly and works with no permission at all.
+
+mod engine;
+mod icon;
+mod process;
+mod property;
+mod tap;
 
 use std::ffi::c_void;
 use std::mem;
 use std::ptr;
+use std::sync::Arc;
 
 use coreaudio_sys::{
     kAudioDevicePropertyDeviceCanBeDefaultDevice, kAudioDevicePropertyDeviceNameCFString,
@@ -19,155 +34,115 @@ use coreaudio_sys::{
     kAudioObjectPropertyScopeOutput, kAudioObjectSystemObject, AudioBufferList, AudioDeviceID,
     AudioHardwareServiceGetPropertyData, AudioHardwareServiceHasProperty,
     AudioHardwareServiceSetPropertyData, AudioObjectGetPropertyData,
-    AudioObjectGetPropertyDataSize, AudioObjectHasProperty, AudioObjectID,
-    AudioObjectPropertyAddress, AudioObjectSetPropertyData, CFRelease, CFStringGetCString,
-    CFStringRef, OSStatus,
+    AudioObjectGetPropertyDataSize, AudioObjectPropertyAddress, CFStringRef, OSStatus,
 };
 use coreaudio_sys::kAudioHardwareServiceDeviceProperty_VirtualMainVolume;
 
+use self::property::{
+    address, check, has_property, read_property, take_cf_string, write_property,
+};
 use super::{
     clamp_unit_scalar, AudioBackend, AudioDevice, AudioError, AudioSession, DeviceId, MasterState,
-    PlatformCapabilities, SessionId, SessionPeak,
+    PlatformCapabilities, SessionId, SessionPeak, SessionState,
 };
 
-/// Rendered verbatim by the UI in place of the session list.
-pub const UNSUPPORTED_REASON: &str = "macOS does not expose per-app volume control. \
-Somul controls the system output instead; per-app mixing arrives in v1.2 on macOS 14.4+.";
+/// Rendered verbatim by the UI when the tap engine cannot run.
+///
+/// Reached on a macOS older than the tap API, or when the user has withheld the audio-capture
+/// permission the taps need. Both leave the panel with master control only, and the panel says so
+/// rather than showing sliders that move nothing.
+pub const UNSUPPORTED_REASON: &str = "Somul could not open the per-app audio taps macOS requires \
+for individual app volume. Check that Somul is allowed to capture audio in System Settings › \
+Privacy & Security, then reopen the panel.";
 
 const PER_APP_ROUTING_REASON: &str = "Per-app output routing is not available on macOS in v1.";
+
+/// The macOS that introduced `AudioHardwareCreateProcessTap`. Below it there is no per-app path
+/// at all, and the panel must say so instead of failing at the first tap.
+const MINIMUM_TAP_VERSION: (u32, u32) = (14, 2);
 
 /// The 1-based channel elements checked when the master element is not settable. Most output
 /// devices expose no master volume element and require writing left and right separately.
 const STEREO_ELEMENTS: [u32; 2] = [1, 2];
 
-pub struct MacOsAudioBackend;
+#[derive(Default)]
+pub struct MacOsAudioBackend {
+    engine: engine::TapEngine,
+}
 
 impl MacOsAudioBackend {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    /// Discovery and tap-set maintenance in one step.
+    ///
+    /// The engine is synced here rather than on a timer because this is the only place the live
+    /// process set is read. A tap set that drifts from the session list would show the user a row
+    /// whose slider controls nothing.
+    fn sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
+        let processes = process::running_output_processes()?;
+
+        self.engine.sync(&processes)?;
+
+        Ok(processes
+            .iter()
+            .map(|found| {
+                let key = found.identifier();
+                let control = self.engine.control(&key);
+
+                AudioSession {
+                    session_id: SessionId::from_backend_identifier(&key)
+                        .unwrap_or_else(|_| unreachable!("process keys are namespaced")),
+                    pid: found.pid as u32,
+                    display_name: found.display_name.clone(),
+                    process_name: found.bundle_id.clone(),
+                    icon_data_uri: icon::icon_data_uri(found.pid, &found.bundle_id),
+                    volume: control.as_ref().map_or(1.0, |control| control.gain()),
+                    is_muted: control.as_ref().is_some_and(|control| control.is_muted()),
+                    output_device_id: None,
+                    // An app CoreAudio reports as producing output that we failed to tap is
+                    // present but not controllable, which is exactly what `Inactive` means.
+                    state: if control.is_some() {
+                        SessionState::Active
+                    } else {
+                        SessionState::Inactive
+                    },
+                }
+            })
+            .collect())
+    }
+
+    fn control_for(&self, id: &SessionId) -> Result<Arc<engine::SessionControl>, AudioError> {
+        // Refreshing first is what makes a write to a session that died between the UI's last
+        // read and this call report `SessionNotFound` rather than silently succeed.
+        let _ = self.sessions();
+
+        self.engine
+            .control(id.as_str())
+            .ok_or_else(|| AudioError::SessionNotFound(id.clone()))
     }
 }
 
-impl Default for MacOsAudioBackend {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// Whether this machine has the tap API at all.
+fn supports_process_taps() -> bool {
+    let version = std::process::Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()
+        .and_then(|output| String::from_utf8(output.stdout).ok());
 
-fn address(selector: u32, scope: u32, element: u32) -> AudioObjectPropertyAddress {
-    AudioObjectPropertyAddress {
-        mSelector: selector,
-        mScope: scope,
-        mElement: element,
-    }
-}
-
-fn check(status: OSStatus, context: &str) -> Result<(), AudioError> {
-    if status == kAudioHardwareNoError as OSStatus {
-        return Ok(());
-    }
-
-    Err(AudioError::BackendFailure(format!(
-        "{context} failed with CoreAudio status {status}"
-    )))
-}
-
-/// SAFETY (shared by every accessor below): `AudioObjectGetPropertyData` writes exactly
-/// `size` bytes into `out`. Each caller passes `size_of::<T>()` for the `T` it declared and a
-/// pointer to a live local of that type, so the write stays inside the allocation. `address` is
-/// read-only and outlives the call.
-fn read_property<T>(
-    object: AudioObjectID,
-    address: &AudioObjectPropertyAddress,
-    context: &str,
-) -> Result<T, AudioError> {
-    let mut value = mem::MaybeUninit::<T>::uninit();
-    let mut size = mem::size_of::<T>() as u32;
-
-    let status = unsafe {
-        AudioObjectGetPropertyData(
-            object,
-            address,
-            0,
-            ptr::null(),
-            &mut size,
-            value.as_mut_ptr().cast::<c_void>(),
-        )
+    let Some(version) = version else {
+        // Unreadable version means an unusual host, not necessarily an old one. Trying the tap
+        // and reporting its real failure beats refusing on a guess.
+        return true;
     };
 
-    check(status, context)?;
+    let mut parts = version.trim().split('.');
+    let major: u32 = parts.next().and_then(|part| part.parse().ok()).unwrap_or(0);
+    let minor: u32 = parts.next().and_then(|part| part.parse().ok()).unwrap_or(0);
 
-    if size as usize != mem::size_of::<T>() {
-        return Err(AudioError::BackendFailure(format!(
-            "{context} returned {size} bytes, expected {}",
-            mem::size_of::<T>()
-        )));
-    }
-
-    // SAFETY: the call above succeeded and reported it wrote the full size of `T`.
-    Ok(unsafe { value.assume_init() })
-}
-
-/// SAFETY: `AudioObjectSetPropertyData` reads exactly `size_of::<T>()` bytes from `value`, which
-/// points at a live local of that type for the duration of the call.
-fn write_property<T>(
-    object: AudioObjectID,
-    address: &AudioObjectPropertyAddress,
-    value: &T,
-    context: &str,
-) -> Result<(), AudioError> {
-    let status = unsafe {
-        AudioObjectSetPropertyData(
-            object,
-            address,
-            0,
-            ptr::null(),
-            mem::size_of::<T>() as u32,
-            ptr::from_ref(value).cast::<c_void>(),
-        )
-    };
-
-    check(status, context)
-}
-
-fn has_property(object: AudioObjectID, address: &AudioObjectPropertyAddress) -> bool {
-    // SAFETY: `address` points at a live local for the duration of the call, and the function
-    // only reads it.
-    unsafe { AudioObjectHasProperty(object, address) != 0 }
-}
-
-/// SAFETY: `value` is a valid `CFStringRef` returned by CoreAudio. `CFStringGetCString` writes at
-/// most `buffer.len()` bytes including the terminator, and ownership follows the Get rule — the
-/// caller received it from a property read, so it must release it exactly once.
-fn take_cf_string(value: CFStringRef) -> String {
-    if value.is_null() {
-        return String::new();
-    }
-
-    let mut buffer = [0_i8; 256];
-    let copied = unsafe {
-        CFStringGetCString(
-            value,
-            buffer.as_mut_ptr(),
-            buffer.len() as i64,
-            coreaudio_sys::kCFStringEncodingUTF8,
-        )
-    };
-
-    // SAFETY: the property read handed us a +1 reference.
-    unsafe { CFRelease(value.cast()) };
-
-    if copied == 0 {
-        return String::new();
-    }
-
-    let bytes: Vec<u8> = buffer
-        .iter()
-        .take_while(|byte| **byte != 0)
-        .map(|byte| *byte as u8)
-        .collect();
-
-    String::from_utf8_lossy(&bytes).into_owned()
+    (major, minor) >= MINIMUM_TAP_VERSION
 }
 
 fn default_output_device() -> Result<AudioDeviceID, AudioError> {
@@ -492,20 +467,49 @@ fn mute_address() -> AudioObjectPropertyAddress {
 }
 
 impl AudioBackend for MacOsAudioBackend {
+    /// Capability is claimed only once a tap has actually opened on this machine.
+    ///
+    /// The version check alone would not do. Both the OS version and the audio-capture
+    /// permission have to hold, and the permission is a user decision that can change while
+    /// Somul runs — so the honest test is whether the engine currently has taps, not whether the
+    /// API exists.
     fn capabilities(&self) -> PlatformCapabilities {
-        PlatformCapabilities::master_only(UNSUPPORTED_REASON)
+        if !supports_process_taps() {
+            return PlatformCapabilities::master_only(format!(
+                "Per-app volume needs macOS {}.{} or later. Somul controls the system output \
+instead.",
+                MINIMUM_TAP_VERSION.0, MINIMUM_TAP_VERSION.1
+            ));
+        }
+
+        match self.sessions() {
+            // Nothing is playing, so nothing is tapped, and there is no evidence either way. The
+            // capable answer is right: the empty state that follows says "no audio playing",
+            // which is true, where the unsupported notice would be a false accusation.
+            Ok(sessions) if sessions.is_empty() => PlatformCapabilities::full_per_app(),
+            Ok(sessions) if sessions.iter().any(|s| s.state == SessionState::Active) => {
+                PlatformCapabilities::full_per_app()
+            }
+            // Apps are playing and not one of them could be tapped. That is the permission being
+            // withheld, and the panel must explain it rather than list dead sliders.
+            Ok(_) | Err(_) => PlatformCapabilities::master_only(UNSUPPORTED_REASON),
+        }
     }
 
     fn list_sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
-        Err(AudioError::Unsupported(UNSUPPORTED_REASON.to_owned()))
+        self.sessions()
     }
 
-    fn set_session_volume(&self, _id: &SessionId, _volume: f32) -> Result<(), AudioError> {
-        Err(AudioError::Unsupported(UNSUPPORTED_REASON.to_owned()))
+    fn set_session_volume(&self, id: &SessionId, volume: f32) -> Result<(), AudioError> {
+        self.control_for(id)?.set_gain(clamp_unit_scalar(volume));
+
+        Ok(())
     }
 
-    fn set_session_mute(&self, _id: &SessionId, _is_muted: bool) -> Result<(), AudioError> {
-        Err(AudioError::Unsupported(UNSUPPORTED_REASON.to_owned()))
+    fn set_session_mute(&self, id: &SessionId, is_muted: bool) -> Result<(), AudioError> {
+        self.control_for(id)?.set_muted(is_muted);
+
+        Ok(())
     }
 
     fn master(&self) -> Result<MasterState, AudioError> {
@@ -603,8 +607,30 @@ impl AudioBackend for MacOsAudioBackend {
     ///
     /// A device-level master meter has no surface on this trait, which reports peaks keyed by
     /// session. Adding one would mean a new trait method and an output IOProc.
+    /// Levels straight from the render callback.
+    ///
+    /// No enumeration and no tap work happens here. This runs at the meter rate, and the whole
+    /// point of publishing peaks through atomics is that reading them costs an atomic swap per
+    /// app rather than a trip through CoreAudio.
     fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError> {
-        Ok(Vec::new())
+        // The one exception to "no enumeration here". A meter read that arrives before the first
+        // session read has no tap set to report against, and reporting nothing would leave every
+        // meter dead until the panel happened to refresh.
+        if self.engine.is_cold() {
+            let _ = self.sessions();
+        }
+
+        Ok(self
+            .engine
+            .peaks()
+            .into_iter()
+            .filter_map(|(key, peak)| {
+                Some(SessionPeak {
+                    session_id: SessionId::from_backend_identifier(&key).ok()?,
+                    peak: clamp_unit_scalar(peak),
+                })
+            })
+            .collect())
     }
 }
 
@@ -619,58 +645,122 @@ mod tests {
             .unwrap_or_else(|_| unreachable!("the probe identifier is namespaced"))
     }
 
+    /// Per-app control is claimed only when a tap actually opened. On a machine where the audio
+    /// capture permission is withheld the answer flips back to master-only, and the reason is
+    /// what the panel renders in place of the session list.
     #[test]
-    fn reports_no_per_app_capability() {
+    fn claims_per_app_control_only_with_a_reason_when_it_cannot() {
         let capabilities = MacOsAudioBackend::new().capabilities();
 
-        assert!(!capabilities.has_per_app_volume);
-        assert!(!capabilities.has_per_app_mute);
-        assert!(!capabilities.has_per_app_meter);
-        assert!(!capabilities.has_per_app_routing);
-    }
+        if capabilities.has_per_app_volume {
+            assert!(capabilities.has_per_app_mute);
+            assert!(capabilities.has_per_app_meter);
+            assert!(
+                capabilities.unsupported_reason.is_none(),
+                "a capable backend must not also carry an excuse"
+            );
+        } else {
+            let reason = capabilities
+                .unsupported_reason
+                .as_deref()
+                .expect("a backend without per-app volume must explain why");
 
-    /// The UI renders this verbatim in place of the session list.
-    #[test]
-    fn carries_the_reason_the_empty_state_renders() {
-        let capabilities = MacOsAudioBackend::new().capabilities();
+            assert!(!reason.trim().is_empty());
+        }
 
-        assert_eq!(
-            capabilities.unsupported_reason.as_deref(),
-            Some(UNSUPPORTED_REASON)
+        assert!(
+            !capabilities.has_per_app_routing,
+            "per-app routing is v1.1 on every platform"
         );
     }
 
-    /// Never `Ok(())`, never an empty list — a silent no-op reaches the user as a control
-    /// that appears to work.
+    /// A write to a session that does not exist must say so. The UI drops the row on
+    /// `SessionNotFound`, and it can only do that if the adapter distinguishes it from a
+    /// generic failure.
     #[test]
-    fn refuses_every_per_app_operation_loudly() {
+    fn writes_to_an_unknown_session_report_it_missing() {
         let backend = MacOsAudioBackend::new();
         let id = session_id();
 
-        assert!(matches!(
-            backend.list_sessions(),
-            Err(AudioError::Unsupported(_))
-        ));
+        if !backend.capabilities().has_per_app_volume {
+            return;
+        }
+
         assert!(matches!(
             backend.set_session_volume(&id, 0.5),
-            Err(AudioError::Unsupported(_))
+            Err(AudioError::SessionNotFound(_))
         ));
         assert!(matches!(
             backend.set_session_mute(&id, true),
-            Err(AudioError::Unsupported(_))
+            Err(AudioError::SessionNotFound(_))
         ));
+    }
+
+    /// Routing stays refused. Per-app volume arriving does not bring per-app output with it —
+    /// a tap mixes into one bus, and that bus has a single destination.
+    #[test]
+    fn still_refuses_per_app_routing() {
+        let backend = MacOsAudioBackend::new();
+
         assert!(matches!(
-            backend.set_session_output_device(&id, &DeviceId::new("1")),
+            backend.set_session_output_device(&session_id(), &DeviceId::new("1")),
             Err(AudioError::Unsupported(_))
         ));
     }
 
+    /// Every session the backend lists must be controllable by the key it published, or the UI
+    /// renders a row whose slider writes nowhere.
     #[test]
-    fn reports_no_session_peaks() {
-        assert!(MacOsAudioBackend::new()
+    fn every_listed_session_accepts_a_write_on_its_own_key() {
+        let backend = MacOsAudioBackend::new();
+
+        let Ok(sessions) = backend.list_sessions() else {
+            return;
+        };
+
+        for session in sessions {
+            if session.state != SessionState::Active {
+                continue;
+            }
+
+            let restore = session.volume;
+
+            assert!(
+                backend.set_session_volume(&session.session_id, 0.5).is_ok(),
+                "listed session {} refused a volume write",
+                session.session_id
+            );
+
+            let _ = backend.set_session_volume(&session.session_id, restore);
+        }
+    }
+
+    /// A meter read that lands before the panel has ever listed sessions must still report the
+    /// live set. Returning nothing there would leave every meter dead until a refresh happened
+    /// to occur.
+    #[test]
+    fn a_cold_peak_read_still_covers_the_live_sessions() {
+        let backend = MacOsAudioBackend::new();
+
+        let peaks = backend
             .read_peaks()
-            .expect("an empty batch is not a failure")
-            .is_empty());
+            .expect("an empty batch is not a failure");
+
+        let sessions = backend.list_sessions().expect("sessions after a cold read");
+
+        assert_eq!(
+            peaks.len(),
+            sessions.len(),
+            "a cold peak read must cover the same sessions the panel would list"
+        );
+
+        for peak in peaks {
+            assert!(
+                (0.0..=1.0).contains(&peak.peak),
+                "peak {} is outside 0.0–1.0",
+                peak.peak
+            );
+        }
     }
 
     #[test]
@@ -711,5 +801,3 @@ mod tests {
         assert!(!master.device_name.is_empty());
     }
 }
-
-
