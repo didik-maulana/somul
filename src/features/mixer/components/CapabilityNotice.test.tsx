@@ -37,13 +37,15 @@ describe('EmptyState', () => {
   });
 
   /** Never gradient-fill a stroke icon — it breaks currentColor and the theme swap with it. */
-  it('renders the icon as a flat brand weight, not a gradient fill', () => {
+  /**
+   * One symbol in the mark. A glyph per state put two in the same badge, and on the permission
+   * state that glyph was the shield the button below already carried.
+   */
+  it('marks itself with the equaliser and no competing glyph', () => {
     const { container } = render(<EmptyState headline="No audio" subline="Nothing yet" />);
 
-    const icon = container.querySelector('svg');
-
-    expect(icon).toHaveClass('text-primary-stroke');
-    expect(icon?.getAttribute('class')).not.toContain('bg-signature');
+    expect(screen.getByTestId('empty-state-equalizer')).toBeInTheDocument();
+    expect(container.querySelector('svg')).toBeNull();
   });
 });
 

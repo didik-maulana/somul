@@ -1,5 +1,4 @@
 import type React from 'react';
-import { SlidersHorizontal } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
 import type { PlatformCapabilities } from '@/types/ipc';
@@ -25,7 +24,6 @@ const FALLBACK_REASON =
  */
 export const CapabilityNotice: React.FC<CapabilityNoticeProps> = ({ capabilities }) => (
   <EmptyState
-    icon={SlidersHorizontal}
     headline="Per-app mixing unavailable"
     subline={capabilities.unsupportedReason ?? FALLBACK_REASON}
   />

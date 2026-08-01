@@ -53,7 +53,7 @@ export const MixerList: React.FC<MixerListProps> = ({
     return (
       <EmptyState
         headline="No audio playing"
-        subline="Apps appear here as soon as they start playing sound."
+        subline="Apps appear here the moment they play a sound. Ones that only hold the speaker open stay out of the way."
         onRefresh={onRefresh}
       />
     );

@@ -28,7 +28,6 @@ export const AudioPermissionNotice: FC<AudioPermissionNoticeProps> = ({
   onOpenSettings,
 }) => (
   <EmptyState
-    icon={ShieldCheck}
     headline="Allow Somul to hear your apps"
     subline={capabilities.unsupportedReason ?? FALLBACK_REASON}
     action={{ label: 'Open Privacy Settings', icon: ShieldCheck, onClick: onOpenSettings }}
