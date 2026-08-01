@@ -25,7 +25,7 @@ coreaudio-sys = { version = "0.2", default-features = false, features = ["audio_
 libc = "0.2"
 objc2 = "0.6"
 block2 = "0.6"
-objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSScreen", "NSApplication", "NSWorkspace", "NSRunningApplication", "NSImage", "NSImageRep", "NSBitmapImageRep", "libc"] }
+objc2-app-kit = { version = "0.3", features = ["NSWindow", "NSView", "NSResponder", "NSScreen", "NSApplication", "NSWorkspace", "NSRunningApplication", "NSImage", "NSImageRep", "NSBitmapImageRep", "NSGraphics", "NSGraphicsContext", "libc"] }
 objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSNotification", "NSString", "NSOperation"] }
 objc2-quartz-core = { version = "0.3", features = ["CALayer"] }
 

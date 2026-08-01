@@ -5,22 +5,36 @@
 //! and a missing icon is a cosmetic loss, never a reason to drop a row the user needs to control.
 
 use std::collections::HashMap;
+use std::ptr;
 use std::sync::Mutex;
 
-use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep, NSRunningApplication};
-use objc2_foundation::NSDictionary;
+use objc2_app_kit::{
+    NSBitmapImageFileType, NSBitmapImageRep, NSCompositingOperation, NSDeviceRGBColorSpace,
+    NSGraphicsContext, NSImage, NSRunningApplication,
+};
+use objc2_foundation::{NSData, NSDictionary, NSPoint, NSRect, NSSize};
 
-/// A macOS app icon encodes to roughly a quarter of a megabyte at its native 1024 px, and the
-/// only alternative to accepting that is drawing it into a smaller bitmap on a thread AppKit is
-/// not happy to be driven from. The cache below is what makes the size affordable; this bound
-/// only rejects the pathological.
-const MAX_ICON_BYTES: usize = 512 * 1024;
+/// Edge of the bitmap the icon is drawn into, in pixels.
+///
+/// The row renders the tile at 32 CSS px, so 64 covers a 2x display exactly. Encoding the native
+/// artwork instead is what made every real icon disappear: a macOS app icon is 1024 px, which
+/// comes out between 1 MB and 2.6 MB of PNG (Chrome measured 1.99 MB, Finder 1.45 MB), so every
+/// app but the smallest tripped the size bound below and fell back to the letter tile. It also
+/// put that much base64 through IPC on every session refresh, once a second.
+const ICON_PIXELS: isize = 64;
+
+/// Sized for the 64 px bitmap, which lands in single-digit kilobytes. It exists to reject a
+/// pathological encode, not to filter normal artwork the way the old 512 KB bound did.
+const MAX_ICON_BYTES: usize = 64 * 1024;
 
 /// Keyed by bundle ID, because that is what identifies the artwork.
 ///
 /// Without this, every slider tick pays for the encode: writing a session volume refreshes the
 /// session list, and refreshing the list used to re-encode every visible app's icon.
-static CACHE: Mutex<Option<HashMap<String, Option<String>>>> = Mutex::new(None);
+///
+/// Successes only. A failure is usually an app that has just launched and has no icon record
+/// yet, and caching that would hold the fallback tile in place for the rest of the session.
+static CACHE: Mutex<Option<HashMap<String, String>>> = Mutex::new(None);
 
 /// The app's icon as a `data:image/png;base64,...` URI, or `None` when anything goes wrong.
 pub(super) fn icon_data_uri(pid: i32, bundle_id: &str) -> Option<String> {
@@ -34,30 +48,19 @@ pub(super) fn icon_data_uri(pid: i32, bundle_id: &str) -> Option<String> {
     let cache = guard.get_or_insert_with(HashMap::new);
 
     if let Some(cached) = cache.get(bundle_id) {
-        return cached.clone();
+        return Some(cached.clone());
     }
 
-    let encoded = encode(pid);
+    let encoded = encode(pid)?;
     cache.insert(bundle_id.to_owned(), encoded.clone());
 
-    encoded
+    Some(encoded)
 }
 
 fn encode(pid: i32) -> Option<String> {
     let application = NSRunningApplication::runningApplicationWithProcessIdentifier(pid)?;
     let icon = application.icon()?;
-
-    // `representations()` on an app icon holds `NSISIconImageRep`s, not bitmaps, so picking one
-    // out and encoding it directly does not work. Round-tripping through TIFF is what produces a
-    // bitmap at all.
-    let tiff = icon.TIFFRepresentation()?;
-    let representation = NSBitmapImageRep::imageRepWithData(&tiff)?;
-
-    let properties = NSDictionary::new();
-    let png = unsafe {
-        representation.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
-    }?;
-
+    let png = downscaled_png(&icon)?;
     let bytes = png.to_vec();
 
     if bytes.is_empty() || bytes.len() > MAX_ICON_BYTES {
@@ -65,6 +68,54 @@ fn encode(pid: i32) -> Option<String> {
     }
 
     Some(format!("data:image/png;base64,{}", base64(&bytes)))
+}
+
+/// Draws the icon into a 64 px bitmap and encodes that as PNG.
+///
+/// The icon cannot be encoded where it sits: `representations()` on an app icon holds
+/// `NSISIconImageRep`s rather than bitmaps, so there is nothing to ask for PNG data. Drawing it
+/// into a bitmap of our own is what produces a bitmap at all, and choosing the size while we are
+/// there is what keeps the result small enough to send.
+fn downscaled_png(icon: &NSImage) -> Option<objc2::rc::Retained<NSData>> {
+    let representation = unsafe {
+        NSBitmapImageRep::initWithBitmapDataPlanes_pixelsWide_pixelsHigh_bitsPerSample_samplesPerPixel_hasAlpha_isPlanar_colorSpaceName_bytesPerRow_bitsPerPixel(
+            objc2::AllocAnyThread::alloc(),
+            ptr::null_mut(),
+            ICON_PIXELS,
+            ICON_PIXELS,
+            8,
+            4,
+            true,
+            false,
+            NSDeviceRGBColorSpace,
+            0,
+            32,
+        )
+    }?;
+
+    let context = NSGraphicsContext::graphicsContextWithBitmapImageRep(&representation)?;
+    let bounds = NSRect::new(
+        NSPoint::ZERO,
+        NSSize::new(ICON_PIXELS as f64, ICON_PIXELS as f64),
+    );
+
+    NSGraphicsContext::saveGraphicsState_class();
+    NSGraphicsContext::setCurrentContext(Some(&context));
+    // `NSZeroRect` as the source draws the whole image, and AppKit picks the representation
+    // closest to the destination size rather than scaling the 1024 px one down.
+    icon.drawInRect_fromRect_operation_fraction(
+        bounds,
+        NSRect::ZERO,
+        NSCompositingOperation::SourceOver,
+        1.0,
+    );
+    NSGraphicsContext::restoreGraphicsState_class();
+
+    let properties = NSDictionary::new();
+
+    unsafe {
+        representation.representationUsingType_properties(NSBitmapImageFileType::PNG, &properties)
+    }
 }
 
 /// Standard base64, no line breaks.
