@@ -3,6 +3,7 @@ import { useCallback, useEffect } from 'react';
 import {
   getAudioSessions,
   getPlatformCapabilities,
+  onCapabilitiesChanged,
   onSessionsChanged,
   setSessionMute,
   setSessionVolume,
@@ -52,6 +53,29 @@ export const useAudioSessions = (): AudioSessions => {
 
   useEffect(() => {
     void getPlatformCapabilities().then(setCapabilities).catch(() => undefined);
+  }, [setCapabilities]);
+
+  // The first read is a starting point, not the answer. Whether Somul has been allowed to hear
+  // the apps it can see is settled seconds later, and only the backend knows when.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let isCancelled = false;
+
+    void onCapabilitiesChanged(setCapabilities)
+      .then((stop) => {
+        if (isCancelled) {
+          stop();
+          return;
+        }
+
+        unlisten = stop;
+      })
+      .catch(() => undefined);
+
+    return () => {
+      isCancelled = true;
+      unlisten?.();
+    };
   }, [setCapabilities]);
 
   useEffect(() => {

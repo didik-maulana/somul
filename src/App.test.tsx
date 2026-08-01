@@ -51,6 +51,7 @@ vi.mock('@/lib/ipc', () => ({
   setHotkeyCapture: () => Promise.resolve(),
   onPanelShown: () => Promise.resolve(() => undefined),
   openAudioPermissionSettings: () => Promise.resolve(),
+  onCapabilitiesChanged: () => Promise.resolve(() => undefined),
   onSessionsChanged: () => Promise.resolve(() => undefined),
   onMasterChanged: () => Promise.resolve(() => undefined),
   onMasterResync: () => Promise.resolve(() => undefined),

@@ -197,11 +197,26 @@ export const onPanelShown = (onEvent: () => void): Promise<UnlistenFn> =>
 
 export const AUDIO_EVENT = {
   sessionsChanged: 'audio://sessions-changed',
+  capabilitiesChanged: 'audio://capabilities-changed',
   masterChanged: 'audio://master-changed',
   masterResync: 'audio://master-resync',
   deviceChanged: 'audio://device-changed',
   backendError: 'audio://backend-error',
 } as const;
+
+/**
+ * Capabilities are pushed, not polled once.
+ *
+ * What they report changes on its own: whether an app has been heard yet is a fact about elapsed
+ * time rather than about anything the panel did. Read once at startup, the permission state could
+ * never appear, because at that moment the taps had only just been created.
+ */
+export const onCapabilitiesChanged = (
+  onEvent: (capabilities: PlatformCapabilities) => void,
+): Promise<UnlistenFn> =>
+  listen<PlatformCapabilities>(AUDIO_EVENT.capabilitiesChanged, ({ payload }) => {
+    onEvent(payload);
+  });
 
 /** One batch per tick covering every session — never one emit per session. */
 export const onSessionsChanged = (

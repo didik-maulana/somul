@@ -9,7 +9,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::audio::{AudioBackend, AudioSession, MasterState, SessionPeak};
+use crate::audio::{AudioBackend, AudioSession, MasterState, PlatformCapabilities, SessionPeak};
 
 pub const METER_HZ: u32 = 30;
 pub const TICK: Duration = Duration::from_nanos(1_000_000_000 / METER_HZ as u64);
@@ -25,6 +25,7 @@ pub const MASTER_CHANGED_EVENT: &str = "audio://master-changed";
 /// Without this the panel's session list is whatever it was at startup: an app that begins
 /// playing afterwards never appears, and one that stops never leaves.
 pub const SESSIONS_CHANGED_EVENT: &str = "audio://sessions-changed";
+const CAPABILITIES_CHANGED_EVENT: &str = "audio://capabilities-changed";
 
 /// Emitted once when the panel opens, carrying the current system state.
 ///
@@ -136,6 +137,7 @@ pub trait PanelEventEmitter: Send + Sync + 'static {
     fn emit_sessions_changed(&self, sessions: &[AudioSession]);
     fn emit_master_changed(&self, master: &MasterState);
     fn emit_master_resync(&self, master: &MasterState);
+    fn emit_capabilities_changed(&self, capabilities: &PlatformCapabilities);
 }
 
 pub struct MeterLoop {
@@ -158,6 +160,7 @@ impl MeterLoop {
             move || {
                 let mut last_master: Option<MasterState> = None;
                 let mut last_sessions: Option<Vec<AudioSession>> = None;
+                let mut last_capabilities: Option<PlatformCapabilities> = None;
                 let mut tick: u32 = 0;
 
                 while is_running.load(Ordering::Acquire) {
@@ -167,6 +170,7 @@ impl MeterLoop {
                         // panel was hidden, and the slider must not show a stale value.
                         last_master = None;
                         last_sessions = None;
+                        last_capabilities = None;
                         tick = 0;
 
                         if !gate.wait_until_visible(&is_running) {
@@ -216,6 +220,18 @@ impl MeterLoop {
                                 last_sessions = Some(sessions);
                             }
                         }
+                    }
+
+                    // Polled rather than pushed by the adapter, because what it reports changes
+                    // on its own: whether an app has been heard yet is a fact about elapsed time,
+                    // not about anything the panel did. Read once per tick and published only on
+                    // a change, which is what lets the panel swap to the permission state without
+                    // the user reopening it.
+                    let capabilities = backend.capabilities();
+
+                    if last_capabilities.as_ref() != Some(&capabilities) {
+                        emitter.emit_capabilities_changed(&capabilities);
+                        last_capabilities = Some(capabilities);
                     }
 
                     tick = tick.wrapping_add(1);
@@ -282,6 +298,12 @@ impl<R: tauri::Runtime> PanelEventEmitter for TauriPanelEmitter<R> {
         use tauri::Emitter;
 
         let _ = self.app.emit(SESSIONS_CHANGED_EVENT, sessions);
+    }
+
+    fn emit_capabilities_changed(&self, capabilities: &PlatformCapabilities) {
+        use tauri::Emitter;
+
+        let _ = self.app.emit(CAPABILITIES_CHANGED_EVENT, capabilities);
     }
 }
 
@@ -371,6 +393,7 @@ mod tests {
         masters: Mutex<Vec<MasterState>>,
         resyncs: Mutex<Vec<MasterState>>,
         session_batches: Mutex<Vec<Vec<AudioSession>>>,
+        capability_updates: Mutex<Vec<PlatformCapabilities>>,
     }
 
     impl RecordingEmitter {
@@ -401,6 +424,13 @@ mod tests {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
         }
+
+        fn capability_updates(&self) -> Vec<PlatformCapabilities> {
+            self.capability_updates
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
     }
 
     impl PanelEventEmitter for RecordingEmitter {
@@ -423,6 +453,13 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(sessions.to_vec());
+        }
+
+        fn emit_capabilities_changed(&self, capabilities: &PlatformCapabilities) {
+            self.capability_updates
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(capabilities.clone());
         }
 
         fn emit_master_resync(&self, master: &MasterState) {
@@ -499,6 +536,39 @@ mod tests {
         assert!(
             !harness.emitter.batches().is_empty(),
             "a visible panel must produce peak batches"
+        );
+    }
+
+    /// What capabilities report changes on its own: whether an app has been heard yet is a fact
+    /// about elapsed time, not about anything the panel did. Read once at startup and never
+    /// again, the permission state could never appear, because at that moment the taps had only
+    /// just been created.
+    #[test]
+    fn publishes_capabilities_so_a_verdict_can_change_under_the_panel() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+        thread::sleep(SETTLE);
+
+        assert!(
+            !harness.emitter.capability_updates().is_empty(),
+            "a visible panel must be told what the platform can currently do"
+        );
+    }
+
+    /// One emit per change, not one per tick. At 30 Hz the panel would otherwise re-render on a
+    /// verdict that had not moved.
+    #[test]
+    fn stays_quiet_while_the_capabilities_are_unchanged() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+        thread::sleep(SETTLE);
+
+        assert_eq!(
+            harness.emitter.capability_updates().len(),
+            1,
+            "a steady platform must be published once, not every tick"
         );
     }
 
