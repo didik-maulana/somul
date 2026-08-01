@@ -83,6 +83,16 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
         // A gradient is a background *image* and cannot tween to a colour; draining can.
         '[&_[data-slot=slider-range]]:bg-primary',
         isMuted && '[&_[data-slot=slider-range]]:opacity-45 [&_[data-slot=slider-range]]:grayscale',
+        // Last, so it wins over the muted drain: a control that cannot move shows an empty track.
+        // These devices report unity because nothing is attenuating, so a full bar with a thumb
+        // parked at the end claims a level Somul neither set nor can change - the same lie the
+        // readout refuses by showing a dash instead of 100%. Hidden by opacity rather than
+        // `display`, which would take the slider out of the accessibility tree along with the
+        // disabled state it still has to announce.
+        isDisabled && [
+          '[&_[data-slot=slider-range]]:opacity-0',
+          '[&_span:has(>[data-slot=slider-thumb])]:opacity-0',
+        ],
         // Every transition on the range lives in one property list. tailwind-merge folds separate
         // `transition-*` classes into a single group and keeps only the last, which is how a
         // second one silently deleted the position easing this branch exists for.

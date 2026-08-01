@@ -185,6 +185,34 @@ describe('VolumeSlider', () => {
     );
   });
 
+  /**
+   * A device with gain in hardware reports unity because nothing is attenuating it. Drawing that
+   * as a full bar with a thumb at the end claims a level Somul neither set nor can change, which
+   * is the same claim the readout refuses when it shows a dash instead of 100%.
+   */
+  it('empties its track when the control cannot move', () => {
+    const { container } = render(
+      <VolumeSlider volume={1} label="Master volume" isDisabled onVolumeChange={vi.fn()} />,
+    );
+
+    expect(container.firstElementChild).toHaveClass(
+      '[&_[data-slot=slider-range]]:opacity-0',
+      '[&_span:has(>[data-slot=slider-thumb])]:opacity-0',
+    );
+  });
+
+  /** Muting drains the fill; being unable to move it empties the track outright. */
+  it('empties the track even when the disabled control is also muted', () => {
+    const { container } = render(
+      <VolumeSlider volume={1} label="Master volume" isDisabled isMuted onVolumeChange={vi.fn()} />,
+    );
+
+    const className = container.firstElementChild?.className ?? '';
+
+    expect(className).toContain('[&_[data-slot=slider-range]]:opacity-0');
+    expect(className).not.toContain('[&_[data-slot=slider-range]]:opacity-45');
+  });
+
   it('is inert when disabled', async () => {
     const user = userEvent.setup();
     const { onVolumeChange, slider } = renderSlider({ isDisabled: true });
