@@ -62,6 +62,34 @@ describe('MasterVolumeCard', () => {
     expect(slider).toHaveClass('[&_[data-slot=slider-range]]:bg-signature');
   });
 
+  it('carries a glyph for the device it is driving', () => {
+    renderCard();
+
+    expect(screen.getByTestId('master-device-icon')).toBeInTheDocument();
+  });
+
+  /** Muting silences the output but does not reset it, so the level it returns to stays visible. */
+  it('keeps the level on screen when muted, alongside the muted chip', () => {
+    renderCard({ master: { ...master, isMuted: true } });
+
+    expect(screen.getByTestId('master-muted-chip')).toBeInTheDocument();
+    expect(screen.getByText('62%')).toBeInTheDocument();
+  });
+
+  it('drains the slider fill while muted rather than swapping it for a flat colour', () => {
+    const { container } = render(
+      <MasterVolumeCard
+        master={{ ...master, isMuted: true }}
+        onVolumeChange={vi.fn()}
+        onVolumeCommit={vi.fn()}
+      />,
+    );
+
+    expect(container.querySelector('[data-slot="slider"]')).toHaveClass(
+      '[&_[data-slot=slider-range]]:grayscale',
+    );
+  });
+
   it('names the master slider for screen readers', () => {
     renderCard();
 

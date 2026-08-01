@@ -128,6 +128,10 @@
   --accent-foreground: #293681;
   --destructive: #c8353c;
   --destructive-foreground: #ffffff;
+  /* Red as *text*. `destructive` is tuned as a fill and reaches only 4.04:1 on the dark card,
+     which fails AA at label sizes; this step is lightened until it passes on card and on the
+     `secondary` chip fill. Light theme needs no separate value and keeps the fill colour. */
+  --destructive-text: #c8353c;
   --success: #167a50;
   --warning: #96600c;
   --info: #2e4a9a;
@@ -166,6 +170,7 @@
   --accent-foreground: #eff1f5;
   --destructive: #d0454c;
   --destructive-foreground: #ffffff;
+  --destructive-text: #e2696f;
   --success: #3fbf87;
   --warning: #e0a340;
   --info: #8fafe8;
@@ -204,6 +209,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-destructive-text: var(--destructive-text);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
@@ -263,6 +269,18 @@
   line-height: 16px;
   font-weight: 500;
   letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The master level, and nothing else. It is deliberately the largest numeral in the panel: the
+   master card and an app row are the same shape, so without a type step between their readouts
+   the control that scales every other one reads as just another row. */
+@utility text-readout {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 

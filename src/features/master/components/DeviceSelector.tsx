@@ -1,5 +1,5 @@
 import { useState, type FC } from 'react';
-import { Check, ChevronDown, Headphones } from 'lucide-react';
+import { Check, ChevronDown } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -29,11 +29,17 @@ export const DeviceSelector: FC<DeviceSelectorProps> = ({ devices, onDeviceSelec
           type="button"
           variant="ghost"
           size="icon"
-          className="size-7 shrink-0 rounded-sm"
+          className="group/device text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground size-7 shrink-0 rounded-md transition-[transform,background-color,color] duration-[140ms] ease-[var(--ease-standard)] active:scale-90 motion-reduce:active:scale-100"
           aria-label="Change output device"
         >
-          <Headphones size={16} strokeWidth={1.75} />
-          <ChevronDown size={12} strokeWidth={1.75} aria-hidden="true" />
+          {/* Chevron alone: the card already carries a glyph for the device type, and a second
+              device icon on the trigger read as a second device rather than as a picker. */}
+          <ChevronDown
+            size={14}
+            strokeWidth={1.75}
+            aria-hidden="true"
+            className="transition-transform duration-200 ease-[var(--ease-standard)] group-data-[state=open]/device:rotate-180 motion-reduce:transition-none"
+          />
         </Button>
       </PopoverTrigger>
 

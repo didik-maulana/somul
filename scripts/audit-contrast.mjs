@@ -27,6 +27,7 @@ const TOKENS = {
     accentForeground: "#eff1f5",
     destructive: "#d0454c",
     destructiveForeground: "#ffffff",
+    destructiveText: "#e2696f",
     success: "#3fbf87",
     warning: "#e0a340",
     info: "#8fafe8",
@@ -52,6 +53,7 @@ const TOKENS = {
     accentForeground: "#293681",
     destructive: "#c8353c",
     destructiveForeground: "#ffffff",
+    destructiveText: "#c8353c",
     success: "#1e9b67",
     warning: "#b87a17",
     info: "#2e4a9a",
@@ -76,6 +78,8 @@ const TEXT_PAIRS = [
   ["`accent-foreground` on `accent`", "accentForeground", "accent", AA_BODY],
   ["`primary-foreground` on `primary`", "primaryForeground", "primary", AA_BODY],
   ["`destructive-foreground` on `destructive`", "destructiveForeground", "destructive", AA_BODY],
+  ["`destructive-text` on `card`", "destructiveText", "card", AA_BODY],
+  ["`destructive-text` on `secondary`", "destructiveText", "secondary", AA_BODY],
   ["`info` on `card`", "info", "card", AA_BODY],
 ];
 
