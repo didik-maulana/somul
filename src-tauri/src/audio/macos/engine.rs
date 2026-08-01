@@ -56,17 +56,35 @@ pub(super) struct SessionControl {
     /// `f32` bits. Pre-gain, so the meter shows what the app is producing rather than what the
     /// user has turned it down to.
     peak: AtomicU32,
-    /// Whether this app has ever put a sample above [`SIGNAL_FLOOR`] through the tap.
+    /// Whether this app has ever put [`SIGNAL_CYCLES`] consecutive render cycles above
+    /// [`SIGNAL_FLOOR`] through the tap.
     ///
     /// Sticky. `IsRunningOutput` is true for any process holding an open output stream, playing
     /// or not, which is how a dev tool that opened an audio context at launch and never used it
     /// ended up with a slider in the mixer. Once an app has been heard it keeps its row, so a
     /// paused player does not vanish between tracks.
     has_signal: AtomicBool,
+    /// Consecutive cycles above the floor so far, counted only until `has_signal` is set.
+    ///
+    /// Written from the render callback, so it is an atomic rather than a lock.
+    signal_run: AtomicU32,
 }
 
 /// Below this a tap is reporting its own noise floor, not audio. -80 dBFS.
 const SIGNAL_FLOOR: f32 = 0.0001;
+
+/// How many consecutive cycles above the floor make an app a mixer row.
+///
+/// One cycle is not evidence. A WebKit-backed app opens its output stream when the view loads and
+/// its first cycles carry a fade-in and denormal residue rather than silence, which at -80 dBFS is
+/// indistinguishable from audio — enough to hand a permanent slider to an app that has played
+/// nothing, since the flag is sticky. Real playback stays above the floor cycle after cycle, so
+/// requiring a run separates the two without raising the floor and losing genuinely quiet audio.
+///
+/// Eight cycles is roughly 85 ms at the 512-frame buffer the HAL usually gives an aggregate, and
+/// under 350 ms at the largest it hands out. Both are shorter than the panel's own refresh, so a
+/// row still appears the moment the user would say the audio started.
+const SIGNAL_CYCLES: u32 = 8;
 
 /// How long the mix is given to render its first tapped cycle before the taps are released.
 ///
@@ -200,6 +218,7 @@ impl SessionControl {
             is_muted: AtomicBool::new(is_muted),
             peak: AtomicU32::new(0.0_f32.to_bits()),
             has_signal: AtomicBool::new(has_signal),
+            signal_run: AtomicU32::new(0),
         }
     }
 
@@ -234,12 +253,25 @@ impl SessionControl {
     ///
     /// Keeps the loudest level seen since the UI last read, so a peak between two reads is
     /// reported rather than overwritten by the quiet frame that followed it.
+    ///
+    /// A cycle at or below the floor restarts the run rather than shortening it. The run is
+    /// evidence of continuous output, and an app producing audio one cycle in three is a stream
+    /// opening and closing, not something to give a slider.
     fn observe(&self, peak: f32) {
         if f32::from_bits(self.peak.load(Ordering::Relaxed)) < peak {
             self.peak.store(peak.to_bits(), Ordering::Relaxed);
         }
 
-        if peak > SIGNAL_FLOOR && !self.has_signal.load(Ordering::Relaxed) {
+        if self.has_signal.load(Ordering::Relaxed) {
+            return;
+        }
+
+        if peak <= SIGNAL_FLOOR {
+            self.signal_run.store(0, Ordering::Relaxed);
+            return;
+        }
+
+        if self.signal_run.fetch_add(1, Ordering::Relaxed) + 1 >= SIGNAL_CYCLES {
             self.has_signal.store(true, Ordering::Relaxed);
         }
     }
@@ -1178,6 +1210,79 @@ mod tests {
 
         assert_eq!(control.take_peak(), 0.8);
         assert_eq!(control.take_peak(), 0.0);
+    }
+
+    /// The defect this pins. A WebKit-backed app opens its output stream when the view loads, and
+    /// the first cycles through the tap carry a fade-in rather than silence. Treating one such
+    /// cycle as playback handed a permanent slider — the flag is sticky — to an app that had
+    /// played nothing, which is how a text editor appeared in the mixer at launch.
+    #[test]
+    fn a_burst_shorter_than_the_run_is_not_playback() {
+        let control = SessionControl::new(1.0, false, false);
+
+        for _ in 0..SIGNAL_CYCLES - 1 {
+            control.observe(0.5);
+        }
+
+        assert!(!control.has_signal());
+    }
+
+    #[test]
+    fn a_sustained_run_above_the_floor_is_playback() {
+        let control = SessionControl::new(1.0, false, false);
+
+        for _ in 0..SIGNAL_CYCLES {
+            control.observe(0.5);
+        }
+
+        assert!(control.has_signal());
+    }
+
+    /// Restarted, not decremented: an app rendering one loud cycle in three is a stream opening
+    /// and closing, and accumulating those would let it reach the run and claim a row.
+    #[test]
+    fn a_silent_cycle_restarts_the_run() {
+        let control = SessionControl::new(1.0, false, false);
+
+        for _ in 0..SIGNAL_CYCLES * 2 {
+            control.observe(0.5);
+            control.observe(0.0);
+        }
+
+        assert!(!control.has_signal());
+    }
+
+    /// The floor is a threshold the level has to clear, not one it may sit on.
+    #[test]
+    fn a_run_exactly_at_the_floor_is_the_taps_own_noise() {
+        let control = SessionControl::new(1.0, false, false);
+
+        for _ in 0..SIGNAL_CYCLES {
+            control.observe(SIGNAL_FLOOR);
+        }
+
+        assert!(!control.has_signal());
+    }
+
+    /// Meters must keep working for an app still short of the run, or a row that does appear
+    /// would arrive with a dead meter.
+    #[test]
+    fn a_level_below_the_run_still_reaches_the_meter() {
+        let control = SessionControl::new(1.0, false, false);
+
+        control.observe(0.5);
+
+        assert!(!control.has_signal());
+        assert_eq!(control.take_peak(), 0.5);
+    }
+
+    /// An app carried through a tap rebuild keeps its row: the run proved playback once, and
+    /// making it prove it again would drop the row of anything paused across the rebuild.
+    #[test]
+    fn a_remembered_signal_needs_no_second_run() {
+        let control = SessionControl::new(1.0, false, true);
+
+        assert!(control.has_signal());
     }
 
     #[test]
