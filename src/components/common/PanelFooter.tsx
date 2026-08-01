@@ -3,20 +3,25 @@ import type React from 'react';
 import { formatAccelerator, isApplePlatform } from '@/lib/accelerator';
 
 export interface PanelFooterProps {
-  activeSessionCount: number;
   hotkey: string;
+  version?: string;
 }
 
-export const PanelFooter: React.FC<PanelFooterProps> = ({ activeSessionCount, hotkey }) => (
+export const PanelFooter: React.FC<PanelFooterProps> = ({
+  hotkey,
+  version = '1.0.0',
+}) => (
   <footer className="border-border text-caption text-muted-foreground flex h-11 shrink-0 items-center justify-between border-t px-3">
-    <span>
-      {activeSessionCount} {activeSessionCount === 1 ? 'app' : 'apps'}
-    </span>
+    <div className="flex items-center gap-1.5">
+      <span className="text-micro text-muted-foreground/80 font-medium">Somul</span>
+      <span className="text-micro text-muted-foreground/50 font-mono">v{version}</span>
+    </div>
 
-    {/* One chip rather than one per key. The shortcut is a single thing to press, and separate
-        chips read as separate options — the joining `+` is what makes it a combination. */}
-    <kbd className="bg-secondary border-border card-raised text-micro rounded-xs border px-1.5 py-0.5">
-      {formatAccelerator(hotkey, isApplePlatform())}
-    </kbd>
+    <div className="flex items-center gap-1.5" title="Shortcut to show or hide Somul panel">
+      <span className="text-micro text-muted-foreground/75 font-normal">Toggle:</span>
+      <kbd className="bg-secondary/80 border-border card-raised text-micro rounded-xs border px-1.5 py-0.5 font-mono font-medium transition-colors hover:text-foreground">
+        {formatAccelerator(hotkey, isApplePlatform())}
+      </kbd>
+    </div>
   </footer>
 );

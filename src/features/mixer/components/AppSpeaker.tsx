@@ -43,7 +43,7 @@ export const AppSpeaker: FC<AppSpeakerProps> = ({
       onClick={onMuteToggle}
       data-testid="app-speaker"
       data-muted={isMuted}
-      className="group/speaker relative shrink-0 rounded-md outline-none"
+      className="group/speaker relative shrink-0 rounded-md outline-none transition-transform duration-150 active:scale-90"
     >
       {/* A muted app has no level to show, and an expired one has no stream behind it. */}
       {peakStream && !isMuted && !isDisabled && (

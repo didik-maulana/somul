@@ -86,6 +86,16 @@ impl SessionControl {
     pub fn take_peak(&self) -> f32 {
         f32::from_bits(self.peak.swap(0.0_f32.to_bits(), Ordering::Relaxed))
     }
+
+    /// Records one render cycle's level from the callback.
+    ///
+    /// Keeps the loudest level seen since the UI last read, so a peak between two reads is
+    /// reported rather than overwritten by the quiet frame that followed it.
+    fn observe(&self, peak: f32) {
+        if f32::from_bits(self.peak.load(Ordering::Relaxed)) < peak {
+            self.peak.store(peak.to_bits(), Ordering::Relaxed);
+        }
+    }
 }
 
 /// One tapped app: the tap itself, and the knobs the UI turns.
@@ -152,8 +162,8 @@ struct EngineState {
     /// list, and a peak batch that skipped it would disagree with that list — which the contract
     /// forbids, because the UI pairs the two by key.
     keys: Vec<String>,
-    /// Survives a rebuild. An app that is muted, then briefly stops producing output, must come
-    /// back muted rather than at full volume.
+    /// Survives a rebuild. An app that is muted while another app opens or quits must come back
+    /// muted rather than at full volume, and that rebuild is not something the user did.
     remembered: Vec<(String, f32, bool)>,
 }
 
@@ -165,7 +175,7 @@ pub(super) struct TapEngine {
 }
 
 impl TapEngine {
-    /// Brings the tap set in line with the processes currently producing output.
+    /// Brings the tap set in line with the apps currently open.
     ///
     /// A rebuild tears the aggregate down and builds it again, which is audible as a short gap.
     /// It therefore happens only when the set of keys actually changes, not on every poll.
@@ -583,21 +593,49 @@ unsafe extern "C" fn render_callback(
 
     let inputs = unsafe { Channels::map(input) };
     let outputs = unsafe { Channels::map(output.cast_const()) };
-    let frames = unsafe { Channels::frames(output.cast_const()).min(Channels::frames(input)) };
+    let output_frames = unsafe { Channels::frames(output.cast_const()) };
+    let input_frames = unsafe { Channels::frames(input) };
 
+    // SAFETY: both views were mapped from live buffer lists belonging to this IO cycle, and the
+    // frame counts came from those same lists.
+    unsafe { mix(&inputs, &outputs, input_frames, output_frames, &state.controls) };
+
+    0
+}
+
+/// Sums every tapped app into the output bus at its own gain.
+///
+/// Split out of the callback so it can be tested against synthetic buffers. Nothing here is
+/// audible to a test suite, but all of it is arithmetic, and arithmetic is checkable.
+///
+/// SAFETY: `inputs` and `outputs` must describe live buffers holding at least the stated frame
+/// counts.
+unsafe fn mix(
+    inputs: &Channels,
+    outputs: &Channels,
+    input_frames: usize,
+    output_frames: usize,
+    controls: &[Arc<SessionControl>],
+) {
+    // Cleared over the *output's* length, not the shared minimum. A tap that delivers fewer
+    // frames than the device asked for — the first cycles after a rebuild, or any underrun —
+    // would otherwise leave the tail of the buffer holding whatever bytes were already there,
+    // and the device plays them. That is the click the user hears.
     for channel in 0..outputs.len {
         let (pointer, stride) = outputs.entries[channel];
 
-        for frame in 0..frames {
+        for frame in 0..output_frames {
             unsafe { *pointer.add(frame * stride) = 0.0 };
         }
     }
 
+    let frames = input_frames.min(output_frames);
+
     if outputs.len == 0 || frames == 0 {
-        return 0;
+        return;
     }
 
-    for (index, control) in state.controls.iter().enumerate() {
+    for (index, control) in controls.iter().enumerate() {
         let gain = if control.is_muted() { 0.0 } else { control.gain() };
         let mut peak = 0.0_f32;
 
@@ -609,8 +647,8 @@ unsafe extern "C" fn render_callback(
             }
 
             let (in_pointer, in_stride) = inputs.entries[source];
-            // A mono-in-stereo-out device still has to hear every app, so the last output
-            // channel takes the overflow rather than dropping it.
+            // A mono output still has to carry every app, so the last channel takes the overflow
+            // rather than dropping it.
             let (out_pointer, out_stride) = outputs.entries[channel.min(outputs.len - 1)];
 
             for frame in 0..frames {
@@ -626,17 +664,10 @@ unsafe extern "C" fn render_callback(
             }
         }
 
-        // Keep the loudest level seen since the UI last read, so a peak between two reads is
-        // reported rather than overwritten by the quiet frame that followed it.
-        let previous = f32::from_bits(control.peak.load(Ordering::Relaxed));
-
-        if peak > previous {
-            control.peak.store(peak.to_bits(), Ordering::Relaxed);
-        }
+        control.observe(peak);
     }
-
-    0
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -648,6 +679,17 @@ mod tests {
 
         assert_eq!(control.gain(), 1.0);
         assert!(!control.is_muted());
+    }
+
+    /// A quiet cycle after a loud one must not erase the loud one before the UI has read it.
+    #[test]
+    fn holds_the_loudest_level_between_two_reads() {
+        let control = SessionControl::new(1.0, false);
+
+        control.observe(0.6);
+        control.observe(0.1);
+
+        assert_eq!(control.take_peak(), 0.6);
     }
 
     /// Reading a peak clears it, so an app that stops producing audio decays to silence instead
@@ -693,6 +735,152 @@ mod tests {
 
     /// A muted app that briefly stops producing output must come back muted. Forgetting across a
     /// rebuild would un-mute apps behind the user's back.
+    /// A stereo interleaved buffer list, shaped the way an aggregate device hands one over.
+    struct Buffers {
+        list: Box<coreaudio_sys::AudioBufferList>,
+        samples: Vec<f32>,
+    }
+
+    impl Buffers {
+        fn new(channels: usize, frames: usize, fill: f32) -> Self {
+            let mut samples = vec![fill; channels * frames];
+            let mut list: Box<coreaudio_sys::AudioBufferList> =
+                Box::new(unsafe { std::mem::zeroed() });
+
+            list.mNumberBuffers = 1;
+            list.mBuffers[0] = coreaudio_sys::AudioBuffer {
+                mNumberChannels: channels as u32,
+                mDataByteSize: (samples.len() * std::mem::size_of::<f32>()) as u32,
+                mData: samples.as_mut_ptr().cast(),
+            };
+
+            Self { list, samples }
+        }
+
+        fn view(&self) -> Channels {
+            unsafe { Channels::map(std::ptr::from_ref(&*self.list)) }
+        }
+    }
+
+    fn control(gain: f32, is_muted: bool) -> Arc<SessionControl> {
+        Arc::new(SessionControl::new(gain, is_muted))
+    }
+
+    #[test]
+    fn applies_each_app_gain_to_its_own_channels() {
+        let input = Buffers::new(2, 4, 0.5);
+        let output = Buffers::new(2, 4, 0.0);
+        let controls = vec![control(0.5, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+
+        assert!(output.samples.iter().all(|sample| (*sample - 0.25).abs() < 1e-6));
+    }
+
+    /// Gain 1.0 must be transparent. A mixer that colours audio at unity is broken.
+    #[test]
+    fn passes_audio_through_untouched_at_unity() {
+        let input = Buffers::new(2, 4, 0.3);
+        let output = Buffers::new(2, 4, 0.0);
+        let controls = vec![control(1.0, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+
+        assert!(output.samples.iter().all(|sample| (*sample - 0.3).abs() < 1e-6));
+    }
+
+    #[test]
+    fn a_muted_app_contributes_nothing() {
+        let input = Buffers::new(2, 4, 0.9);
+        let output = Buffers::new(2, 4, 0.0);
+        let controls = vec![control(1.0, true)];
+
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+
+        assert!(output.samples.iter().all(|sample| *sample == 0.0));
+    }
+
+    /// Two apps sum. The failure this catches is a mixer that plays only the last one.
+    #[test]
+    fn sums_two_apps_into_one_bus() {
+        let input = Buffers::new(4, 2, 0.25);
+        let output = Buffers::new(2, 2, 0.0);
+        let controls = vec![control(1.0, false), control(1.0, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls) };
+
+        assert!(output.samples.iter().all(|sample| (*sample - 0.5).abs() < 1e-6));
+    }
+
+    /// Summed apps can exceed full scale, and wrapping there is what turns a loud moment into a
+    /// burst of noise.
+    #[test]
+    fn clamps_instead_of_wrapping_when_the_bus_overflows() {
+        let input = Buffers::new(4, 2, 0.8);
+        let output = Buffers::new(2, 2, 0.0);
+        let controls = vec![control(1.0, false), control(1.0, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls) };
+
+        assert!(output.samples.iter().all(|sample| *sample <= 1.0 && *sample >= -1.0));
+        assert!(output.samples.iter().all(|sample| (*sample - 1.0).abs() < 1e-6));
+    }
+
+    /// The defect this pins: clearing only the shared minimum leaves the tail of the output
+    /// holding whatever was there before, and the device plays it as a click.
+    #[test]
+    fn clears_the_whole_output_even_when_the_input_is_short() {
+        let input = Buffers::new(2, 2, 0.5);
+        let output = Buffers::new(2, 8, 0.77);
+        let controls = vec![control(1.0, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 2, 8, &controls) };
+
+        let tail = &output.samples[2 * 2..];
+
+        assert!(
+            tail.iter().all(|sample| *sample == 0.0),
+            "stale audio survived past the input: {tail:?}"
+        );
+    }
+
+    /// Nothing to mix must still mean silence, not the previous cycle's contents.
+    #[test]
+    fn silences_the_output_when_no_input_arrives() {
+        let input = Buffers::new(2, 0, 0.0);
+        let output = Buffers::new(2, 4, 0.61);
+        let controls = vec![control(1.0, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 0, 4, &controls) };
+
+        assert!(output.samples.iter().all(|sample| *sample == 0.0));
+    }
+
+    /// Peak is pre-gain, so the meter shows what the app is producing rather than what the user
+    /// turned it down to.
+    #[test]
+    fn reports_the_peak_before_gain_is_applied() {
+        let input = Buffers::new(2, 4, 0.8);
+        let output = Buffers::new(2, 4, 0.0);
+        let controls = vec![control(0.1, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+
+        assert!((controls[0].take_peak() - 0.8).abs() < 1e-6);
+    }
+
+    /// A mono output still has to carry both channels of every app.
+    #[test]
+    fn folds_into_a_mono_output_without_dropping_a_channel() {
+        let input = Buffers::new(2, 2, 0.4);
+        let output = Buffers::new(1, 2, 0.0);
+        let controls = vec![control(1.0, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls) };
+
+        assert!(output.samples.iter().all(|sample| (*sample - 0.8).abs() < 1e-6));
+    }
+
     #[test]
     fn remembers_gain_and_mute_across_a_rebuild() {
         let mut state = EngineState::default();

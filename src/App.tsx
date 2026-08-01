@@ -68,8 +68,16 @@ export const App: FC = () => {
   const handleSessionVolumeCommit = useCallback(
     (session: AudioSession, volume: number) => {
       sessions.changeVolume(session.sessionId, volume);
-      void sessions.commitVolume(session.sessionId, volume);
-      sessions.stopDragging(session.sessionId);
+
+      // Dragging ends only once the backend has the value, not when the pointer lifts. The drag
+      // flag is what holds `sessions-changed` back from overwriting this row's volume, and the
+      // backend now publishes that list every second — so clearing the flag first leaves a window
+      // where an in-flight event carries the pre-commit level and snaps the slider backwards.
+      void sessions
+        .commitVolume(session.sessionId, volume)
+        .finally(() => {
+          sessions.stopDragging(session.sessionId);
+        });
     },
     [sessions],
   );
@@ -93,7 +101,6 @@ export const App: FC = () => {
       }
       footer={
         <PanelFooter
-          activeSessionCount={sessions.sessions.length}
           hotkey={settings.settings?.hotkey ?? DEFAULT_HOTKEY}
         />
       }
@@ -105,6 +112,9 @@ export const App: FC = () => {
           master={master.master}
           onVolumeChange={handleMasterVolumeChange}
           onVolumeCommit={masterCommit.flush}
+          onMuteToggle={() => {
+            void master.toggleMute();
+          }}
           hasSmoothMotion={!isDraggingMaster && !master.isResyncing}
           deviceSelector={
             <DeviceSelector

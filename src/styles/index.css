@@ -108,7 +108,7 @@
      afford the glass. */
   --panel-opacity: 94%;
   --foreground: #12151b;
-  --card: #ffffff;
+  --card: color-mix(in srgb, #ffffff 52%, transparent);
   --card-foreground: #12151b;
   --popover: #ffffff;
   --popover-foreground: #12151b;
@@ -128,8 +128,8 @@
   --accent-foreground: #293681;
   --destructive: #c8353c;
   --destructive-foreground: #ffffff;
-  --success: #1e9b67;
-  --warning: #b87a17;
+  --success: #167a50;
+  --warning: #96600c;
   --info: #2e4a9a;
   --meter-floor: #4e7d7c;
   --meter-mid: #3b7b92;
@@ -137,12 +137,21 @@
   --input: #767e91;
   --ring: #4274d9;
   --radius: 0.75rem;
+
+  --mesh-gradient-primary: radial-gradient(circle, rgba(52, 92, 180, 0.55) 0%, rgba(66, 116, 217, 0.35) 45%, transparent 75%);
+  --mesh-gradient-secondary: radial-gradient(circle, rgba(78, 145, 180, 0.55) 0%, rgba(52, 92, 180, 0.35) 45%, transparent 75%);
+
+  --audio-circle-gradient-1: radial-gradient(circle at center, rgba(52, 92, 180, 0.58) 0%, rgba(66, 116, 217, 0.35) 45%, transparent 80%);
+  --audio-circle-gradient-2: radial-gradient(circle at center, rgba(46, 74, 154, 0.55) 0%, rgba(78, 145, 180, 0.32) 45%, transparent 80%);
+  --audio-circle-gradient-3: radial-gradient(circle at center, rgba(66, 116, 217, 0.58) 0%, rgba(52, 92, 180, 0.35) 45%, transparent 80%);
+  --audio-circle-gradient-4: radial-gradient(circle at center, rgba(39, 100, 140, 0.52) 0%, rgba(66, 116, 217, 0.3) 45%, transparent 80%);
+  --audio-circle-pulse-opacity: 0.88;
 }
 
 .dark {
   --background: #0b0d12;
   --foreground: #eff1f5;
-  --card: #12151b;
+  --card: color-mix(in srgb, #12151b 52%, transparent);
   --card-foreground: #eff1f5;
   --popover: #171a22;
   --popover-foreground: #eff1f5;
@@ -166,6 +175,15 @@
   --input: #636b80;
   --ring: #4274d9;
   --panel-opacity: 82%;
+
+  --mesh-gradient-primary: radial-gradient(circle, #4274d9 0%, #293681 50%, transparent 70%);
+  --mesh-gradient-secondary: radial-gradient(circle, #95ccdd 0%, #345cb4 50%, transparent 70%);
+
+  --audio-circle-gradient-1: radial-gradient(circle at center, color-mix(in srgb, var(--ring) 42%, transparent) 0%, color-mix(in srgb, var(--primary) 22%, transparent) 45%, transparent 80%);
+  --audio-circle-gradient-2: radial-gradient(circle at center, color-mix(in srgb, var(--info) 40%, transparent) 0%, color-mix(in srgb, var(--primary-stroke) 20%, transparent) 45%, transparent 80%);
+  --audio-circle-gradient-3: radial-gradient(circle at center, color-mix(in srgb, var(--primary-stroke) 42%, transparent) 0%, color-mix(in srgb, var(--info) 22%, transparent) 45%, transparent 80%);
+  --audio-circle-gradient-4: radial-gradient(circle at center, color-mix(in srgb, var(--meter-mid) 38%, transparent) 0%, color-mix(in srgb, var(--ring) 18%, transparent) 45%, transparent 80%);
+  --audio-circle-pulse-opacity: 0.65;
 }
 
 @theme inline {
@@ -317,6 +335,117 @@
 
   @media (prefers-reduced-motion: reduce) {
     transform: none;
+  }
+}
+
+@utility animated-circular-gradient {
+  background: radial-gradient(circle, #4274d9 0%, #293681 50%, transparent 70%);
+  animation: circular-gradient-float 10s ease-in-out infinite alternate;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility animated-circular-gradient-secondary {
+  background: radial-gradient(circle, #95ccdd 0%, #345cb4 50%, transparent 70%);
+  animation: circular-gradient-float-secondary 14s ease-in-out infinite alternate;
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+  }
+}
+
+@utility audio-circle-ring {
+  will-change: transform, opacity;
+  animation: audio-circle-pulse 10s cubic-bezier(0.2, 0.8, 0.25, 1) infinite;
+  transform: translateZ(0);
+
+  @media (prefers-reduced-motion: reduce) {
+    animation: none;
+    opacity: 0.15;
+    transform: scale(1);
+  }
+}
+
+.audio-circle-1 {
+  animation-delay: 0s;
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--primary) 32%, transparent) 0%,
+    color-mix(in srgb, var(--primary) 18%, transparent) 45%,
+    transparent 80%
+  );
+}
+
+.audio-circle-2 {
+  animation-delay: 2.5s;
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--info) 30%, transparent) 0%,
+    color-mix(in srgb, var(--primary) 15%, transparent) 45%,
+    transparent 80%
+  );
+}
+
+.audio-circle-3 {
+  animation-delay: 5s;
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--ring) 32%, transparent) 0%,
+    color-mix(in srgb, var(--info) 18%, transparent) 45%,
+    transparent 80%
+  );
+}
+
+.audio-circle-4 {
+  animation-delay: 7.5s;
+  background: radial-gradient(
+    circle at center,
+    color-mix(in srgb, var(--primary-stroke) 28%, transparent) 0%,
+    color-mix(in srgb, var(--primary) 14%, transparent) 45%,
+    transparent 80%
+  );
+}
+
+@keyframes audio-circle-pulse {
+  0% {
+    transform: scale(0.15);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.65;
+  }
+  75% {
+    opacity: 0.2;
+  }
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes circular-gradient-float {
+  0% {
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translate(35px, 45px) scale(1.2) rotate(180deg);
+  }
+  100% {
+    transform: translate(-25px, 20px) scale(0.9) rotate(360deg);
+  }
+}
+
+@keyframes circular-gradient-float-secondary {
+  0% {
+    transform: translate(0px, 0px) scale(1) rotate(0deg);
+  }
+  50% {
+    transform: translate(-45px, -35px) scale(1.25) rotate(-180deg);
+  }
+  100% {
+    transform: translate(25px, -15px) scale(0.85) rotate(-360deg);
   }
 }
 

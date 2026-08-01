@@ -206,6 +206,24 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), AudioError>;
 
     fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError>;
+
+    /// Whether the session list may have changed since this was last asked.
+    ///
+    /// Enumeration is the expensive half of a meter tick, and on macOS it also decides whether the
+    /// tap graph is rebuilt — so the loop must not do it on a hunch. A backend the OS notifies can
+    /// answer precisely, and the panel then follows an app starting playback within a tick rather
+    /// than on the next poll.
+    ///
+    /// `None` — the default — means this backend has no notification to answer from and must be
+    /// re-enumerated on the loop's own timer. That is deliberately distinct from `Some(false)`,
+    /// which is a backend stating that nothing has changed: reading "I don't know" as "nothing
+    /// happened" would stop a polling backend from ever refreshing.
+    ///
+    /// Asking is expected to consume the change, so two calls without an intervening change do not
+    /// both report one.
+    fn sessions_may_have_changed(&self) -> Option<bool> {
+        None
+    }
 }
 
 /// Volume and peak are linear scalars on the wire. Adapters clamp at the boundary so an

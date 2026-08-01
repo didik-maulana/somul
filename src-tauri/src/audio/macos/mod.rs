@@ -19,6 +19,7 @@ mod icon;
 mod process;
 mod property;
 mod tap;
+mod watch;
 
 use std::ffi::c_void;
 use std::mem;
@@ -81,7 +82,7 @@ impl MacOsAudioBackend {
     /// process set is read. A tap set that drifts from the session list would show the user a row
     /// whose slider controls nothing.
     fn sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
-        let processes = process::running_output_processes()?;
+        let processes = process::playing_applications()?;
 
         self.engine.sync(&processes)?;
 
@@ -101,8 +102,8 @@ impl MacOsAudioBackend {
                     volume: control.as_ref().map_or(1.0, |control| control.gain()),
                     is_muted: control.as_ref().is_some_and(|control| control.is_muted()),
                     output_device_id: None,
-                    // An app CoreAudio reports as producing output that we failed to tap is
-                    // present but not controllable, which is exactly what `Inactive` means.
+                    // An open app that we failed to tap is present but not controllable, which is
+                    // exactly what `Inactive` means.
                     state: if control.is_some() {
                         SessionState::Active
                     } else {
@@ -113,11 +114,17 @@ impl MacOsAudioBackend {
             .collect())
     }
 
+    /// The knobs for one session, without touching CoreAudio.
+    ///
+    /// Deliberately does not refresh first. A drag debounces to a write every 50 ms, and
+    /// refreshing here meant a full process enumeration — parent-chain walks and all — twenty
+    /// times a second, any one of which could notice a helper appearing and tear down every tap
+    /// to rebuild the aggregate. That rebuild is audible, and dragging a slider is the worst
+    /// possible moment for it. The tap set is maintained by `list_sessions` instead.
+    ///
+    /// A session that never existed is still reported missing, because it was never in the
+    /// engine's slots to begin with.
     fn control_for(&self, id: &SessionId) -> Result<Arc<engine::SessionControl>, AudioError> {
-        // Refreshing first is what makes a write to a session that died between the UI's last
-        // read and this call report `SessionNotFound` rather than silently succeed.
-        let _ = self.sessions();
-
         self.engine
             .control(id.as_str())
             .ok_or_else(|| AudioError::SessionNotFound(id.clone()))
@@ -483,14 +490,14 @@ instead.",
         }
 
         match self.sessions() {
-            // Nothing is playing, so nothing is tapped, and there is no evidence either way. The
-            // capable answer is right: the empty state that follows says "no audio playing",
-            // which is true, where the unsupported notice would be a false accusation.
+            // No app with audio is open, so nothing is tapped, and there is no evidence either
+            // way. The capable answer is right: the empty state that follows says no apps are
+            // open, which is true, where the unsupported notice would be a false accusation.
             Ok(sessions) if sessions.is_empty() => PlatformCapabilities::full_per_app(),
             Ok(sessions) if sessions.iter().any(|s| s.state == SessionState::Active) => {
                 PlatformCapabilities::full_per_app()
             }
-            // Apps are playing and not one of them could be tapped. That is the permission being
+            // Apps are open and not one of them could be tapped. That is the permission being
             // withheld, and the panel must explain it rather than list dead sliders.
             Ok(_) | Err(_) => PlatformCapabilities::master_only(UNSUPPORTED_REASON),
         }
@@ -498,6 +505,11 @@ instead.",
 
     fn list_sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
         self.sessions()
+    }
+
+    /// Answered by CoreAudio's own property listeners rather than by a timer.
+    fn sessions_may_have_changed(&self) -> Option<bool> {
+        Some(watch::take_change())
     }
 
     fn set_session_volume(&self, id: &SessionId, volume: f32) -> Result<(), AudioError> {

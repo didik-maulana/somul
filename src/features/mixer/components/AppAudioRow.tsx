@@ -47,14 +47,14 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
       data-muted={session.isMuted}
       data-dragging={isDragging}
       className={cn(
-        'group flex items-center gap-3 rounded-lg border border-transparent px-2 transition-colors duration-[140ms] ease-[var(--ease-standard)]',
+        'group flex items-center gap-3 rounded-lg border border-transparent bg-secondary/15 backdrop-blur-xs px-2 transition-colors duration-[140ms] ease-[var(--ease-standard)]',
         peakStream ? 'h-16' : 'h-13',
-        'hover:bg-accent hover:border-border',
+        'hover:bg-accent hover:border-border hover:backdrop-blur-md',
         // Offset against `background`, the panel's own surface. Offsetting to `popover` would
         // paint a wrong-coloured halo, since popover is now reserved for things floating above
         // the panel rather than the panel itself.
         'focus-within:ring-ring focus-within:ring-offset-background focus-within:ring-2 focus-within:ring-offset-2',
-        isDragging && 'bg-card border-border shadow-e2',
+        isDragging && 'bg-card backdrop-blur-md border-border shadow-e2',
         isExpired && 'pointer-events-none opacity-50',
         isUncontrollable && 'opacity-60',
       )}
@@ -87,7 +87,7 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
           </span>
 
           {session.isMuted && !isUncontrollable && (
-            <span className="text-micro text-muted-foreground bg-secondary rounded-xs px-1">
+            <span className="text-micro text-muted-foreground bg-secondary/90 border border-border/50 rounded-xs px-1.5 py-0.5 font-medium tracking-wide">
               MUTED
             </span>
           )}
@@ -96,13 +96,13 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
             <span
               data-testid="uncontrollable-chip"
               title="macOS would not let Somul take over this app's audio."
-              className="text-micro text-muted-foreground bg-secondary rounded-xs px-1"
+              className="text-micro text-muted-foreground bg-secondary/90 border border-border/50 rounded-xs px-1.5 py-0.5 font-medium tracking-wide"
             >
               NO CONTROL
             </span>
           )}
 
-          <span className="text-numeric text-muted-foreground shrink-0">
+          <span className={cn('text-numeric shrink-0 font-medium', session.isMuted ? 'text-muted-foreground/60' : 'text-muted-foreground')}>
             {isUncontrollable ? '—' : formatPercent(session.volume)}
           </span>
         </div>

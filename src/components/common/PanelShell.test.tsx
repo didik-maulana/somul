@@ -92,18 +92,16 @@ describe('PanelHeader', () => {
 });
 
 describe('PanelFooter', () => {
-  it('reports the active session count', () => {
-    const { rerender } = render(<PanelFooter activeSessionCount={3} hotkey="CmdOrCtrl+Shift+V" />);
-    expect(screen.getByText('3 apps')).toBeInTheDocument();
-
-    rerender(<PanelFooter activeSessionCount={1} hotkey="CmdOrCtrl+Shift+V" />);
-    expect(screen.getByText('1 app')).toBeInTheDocument();
+  it('renders app name and version badge', () => {
+    render(<PanelFooter hotkey="CmdOrCtrl+Shift+V" version="1.0.0" />);
+    expect(screen.getByText('Somul')).toBeInTheDocument();
+    expect(screen.getByText('v1.0.0')).toBeInTheDocument();
   });
 
   /** The shortcut is one thing to press, so it reads as one chip joined by `+`. */
   it('renders the hotkey as a single chip', () => {
     const { container } = render(
-      <PanelFooter activeSessionCount={0} hotkey="CmdOrCtrl+Shift+V" />,
+      <PanelFooter hotkey="CmdOrCtrl+Shift+V" />,
     );
 
     const chips = [...container.querySelectorAll('kbd')];

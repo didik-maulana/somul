@@ -78,8 +78,8 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({
               onThemeChange(value);
             }}
             className={cn(
-              "relative z-10 flex size-7 items-center justify-center rounded-[5px]",
-              "transition-colors duration-[220ms]",
+              "group relative z-10 flex size-7 items-center justify-center rounded-[5px]",
+              "transition-all duration-150 active:scale-90",
               // Colour carries the selected state, which is exactly what the palette reserves it
               // for. Two near-identical greys are not enough to read at a glance in dark theme.
               isActive
@@ -87,7 +87,7 @@ export const ThemeSwitcher: React.FC<ThemeSwitcherProps> = ({
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            <Icon size={15} strokeWidth={1.75} />
+            <Icon size={15} strokeWidth={1.75} className="transition-transform duration-200 group-hover:scale-110 group-active:scale-95" />
           </button>
         );
       })}

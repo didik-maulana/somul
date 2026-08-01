@@ -77,7 +77,7 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
         onVolumeCommit?.(toScalar(values));
       }}
       className={cn(
-        '[&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:rounded-full',
+        '[&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:rounded-full [&_[data-slot=slider-track]]:bg-black/14 dark:[&_[data-slot=slider-track]]:bg-white/12',
         // Radix positions the range and the thumb with `left`/`right` percentages, so those are
         // the properties that have to ease. Linear over exactly one sample interval means each
         // sample arrives as the previous one finishes, and the steps read as continuous motion.

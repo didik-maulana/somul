@@ -9,7 +9,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crate::audio::{AudioBackend, MasterState, SessionPeak};
+use crate::audio::{AudioBackend, AudioSession, MasterState, SessionPeak};
 
 pub const METER_HZ: u32 = 30;
 pub const TICK: Duration = Duration::from_nanos(1_000_000_000 / METER_HZ as u64);
@@ -19,6 +19,12 @@ pub const PEAKS_EVENT: &str = "audio://peaks";
 
 /// Emitted when the system output volume, mute, or device changes while the panel is open.
 pub const MASTER_CHANGED_EVENT: &str = "audio://master-changed";
+
+/// Emitted when the set of apps producing audio changes while the panel is open.
+///
+/// Without this the panel's session list is whatever it was at startup: an app that begins
+/// playing afterwards never appears, and one that stops never leaves.
+pub const SESSIONS_CHANGED_EVENT: &str = "audio://sessions-changed";
 
 /// Emitted once when the panel opens, carrying the current system state.
 ///
@@ -34,8 +40,28 @@ pub const MASTER_RESYNC_EVENT: &str = "audio://master-resync";
 /// dragging the system slider looks live and slow enough to stay off the hot path.
 const MASTER_POLL_EVERY_TICKS: u32 = 6;
 
+/// The session list is polled far more slowly than the master state. Enumerating processes is
+/// markedly more expensive than reading one volume, and on macOS a change to the set also rebuilds
+/// the tap graph — so asking too eagerly turns a background poll into an audible one. Every 30th
+/// tick is once a second, which is faster than a user can notice an app missing from the list.
+const SESSION_POLL_EVERY_TICKS: u32 = 30;
+
 /// Volume arrives as a float from the OS, so an exact comparison would emit on rounding noise.
 const VOLUME_EPSILON: f32 = 0.001;
+
+/// Compares identity, level, and mute — not peak, which changes every frame by design.
+fn have_sessions_changed(previous: &[AudioSession], current: &[AudioSession]) -> bool {
+    if previous.len() != current.len() {
+        return true;
+    }
+
+    previous.iter().zip(current).any(|(previous, current)| {
+        previous.session_id != current.session_id
+            || previous.is_muted != current.is_muted
+            || previous.state != current.state
+            || (previous.volume - current.volume).abs() > VOLUME_EPSILON
+    })
+}
 
 fn has_master_changed(previous: &MasterState, current: &MasterState) -> bool {
     (previous.volume - current.volume).abs() > VOLUME_EPSILON
@@ -107,6 +133,7 @@ impl MeterGate {
 /// so a test can count emits and assert one batch per tick.
 pub trait PanelEventEmitter: Send + Sync + 'static {
     fn emit_peaks(&self, peaks: &[SessionPeak]);
+    fn emit_sessions_changed(&self, sessions: &[AudioSession]);
     fn emit_master_changed(&self, master: &MasterState);
     fn emit_master_resync(&self, master: &MasterState);
 }
@@ -130,6 +157,7 @@ impl MeterLoop {
 
             move || {
                 let mut last_master: Option<MasterState> = None;
+                let mut last_sessions: Option<Vec<AudioSession>> = None;
                 let mut tick: u32 = 0;
 
                 while is_running.load(Ordering::Acquire) {
@@ -138,6 +166,7 @@ impl MeterLoop {
                         // always re-emits: the user may have changed the system volume while the
                         // panel was hidden, and the slider must not show a stale value.
                         last_master = None;
+                        last_sessions = None;
                         tick = 0;
 
                         if !gate.wait_until_visible(&is_running) {
@@ -162,6 +191,29 @@ impl MeterLoop {
                             } else if has_changed {
                                 emitter.emit_master_changed(&master);
                                 last_master = Some(master);
+                            }
+                        }
+                    }
+
+                    // Notification first, timer second. Where the OS tells the backend, an app
+                    // that starts playing is picked up on the next tick rather than on the next
+                    // poll. The timer stays as the floor under a backend with no notification, and
+                    // as the safety net if one is ever missed.
+                    let is_session_poll_due = tick % SESSION_POLL_EVERY_TICKS == 0;
+                    let is_notified = backend.sessions_may_have_changed().unwrap_or(false);
+
+                    if is_notified || is_session_poll_due {
+                        if let Ok(sessions) = backend.list_sessions() {
+                            let has_changed = match last_sessions.as_ref() {
+                                // Nothing published yet since the panel opened, so the panel is
+                                // showing whatever it had when it closed.
+                                None => true,
+                                Some(previous) => have_sessions_changed(previous, &sessions),
+                            };
+
+                            if has_changed {
+                                emitter.emit_sessions_changed(&sessions);
+                                last_sessions = Some(sessions);
                             }
                         }
                     }
@@ -224,6 +276,12 @@ impl<R: tauri::Runtime> PanelEventEmitter for TauriPanelEmitter<R> {
         use tauri::Emitter;
 
         let _ = self.app.emit(MASTER_RESYNC_EVENT, master);
+    }
+
+    fn emit_sessions_changed(&self, sessions: &[AudioSession]) {
+        use tauri::Emitter;
+
+        let _ = self.app.emit(SESSIONS_CHANGED_EVENT, sessions);
     }
 }
 
@@ -312,6 +370,7 @@ mod tests {
         batches: Mutex<Vec<Vec<SessionPeak>>>,
         masters: Mutex<Vec<MasterState>>,
         resyncs: Mutex<Vec<MasterState>>,
+        session_batches: Mutex<Vec<Vec<AudioSession>>>,
     }
 
     impl RecordingEmitter {
@@ -335,6 +394,13 @@ mod tests {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
         }
+
+        fn session_batches(&self) -> Vec<Vec<AudioSession>> {
+            self.session_batches
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
     }
 
     impl PanelEventEmitter for RecordingEmitter {
@@ -350,6 +416,13 @@ mod tests {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .push(master.clone());
+        }
+
+        fn emit_sessions_changed(&self, sessions: &[AudioSession]) {
+            self.session_batches
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(sessions.to_vec());
         }
 
         fn emit_master_resync(&self, master: &MasterState) {
@@ -620,5 +693,242 @@ mod tests {
             settled,
             "the worker thread outlived stop()"
         );
+    }
+
+    /// Without this the panel's list is whatever it was at startup: an app that starts playing
+    /// afterwards never appears, and one that stops never leaves.
+    #[test]
+    fn publishes_the_session_list_so_the_panel_can_follow_it() {
+        let backend: Arc<dyn AudioBackend> = Arc::new(MockAudioBackend::full_per_app());
+        let gate = Arc::new(MeterGate::default());
+        let emitter = Arc::new(RecordingEmitter::default());
+
+        gate.set_visible(true);
+
+        let mut loop_under_test = MeterLoop::start(
+            Arc::clone(&backend),
+            Arc::clone(&gate),
+            Arc::clone(&emitter) as Arc<dyn PanelEventEmitter>,
+        );
+
+        thread::sleep(TICK * 3);
+        loop_under_test.stop();
+
+        let batches = emitter.session_batches();
+
+        assert!(
+            !batches.is_empty(),
+            "the panel was never told what sessions exist"
+        );
+        assert!(
+            !batches[0].is_empty(),
+            "the first batch carried no sessions, so the list would render empty"
+        );
+    }
+
+    /// An unchanged list must not be re-emitted every second. Each emit replaces the panel's
+    /// session state, and doing that needlessly fights the user's own drag.
+    #[test]
+    fn stays_quiet_while_the_session_list_is_unchanged() {
+        let backend: Arc<dyn AudioBackend> = Arc::new(MockAudioBackend::full_per_app());
+        let gate = Arc::new(MeterGate::default());
+        let emitter = Arc::new(RecordingEmitter::default());
+
+        gate.set_visible(true);
+
+        let mut loop_under_test = MeterLoop::start(
+            Arc::clone(&backend),
+            Arc::clone(&gate),
+            Arc::clone(&emitter) as Arc<dyn PanelEventEmitter>,
+        );
+
+        thread::sleep(TICK * (SESSION_POLL_EVERY_TICKS as u32 * 2 + 4));
+        loop_under_test.stop();
+
+        assert_eq!(
+            emitter.session_batches().len(),
+            1,
+            "a static session list was published more than once"
+        );
+    }
+
+    /// A backend the OS notifies must not wait for the poll.
+    ///
+    /// The whole point of the notification path: an app that starts playing shows up on the next
+    /// tick, not up to a second later. The wait here is a small fraction of the poll interval, so
+    /// a batch arriving at all proves the notification drove it.
+    #[test]
+    fn republishes_as_soon_as_the_backend_reports_a_change() {
+        struct NotifyingBackend {
+            inner: MockAudioBackend,
+            has_changed: AtomicBool,
+        }
+
+        impl AudioBackend for NotifyingBackend {
+            fn capabilities(&self) -> PlatformCapabilities {
+                self.inner.capabilities()
+            }
+
+            fn list_sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
+                self.inner.list_sessions()
+            }
+
+            fn set_session_volume(&self, id: &SessionId, volume: f32) -> Result<(), AudioError> {
+                self.inner.set_session_volume(id, volume)
+            }
+
+            fn set_session_mute(&self, id: &SessionId, is_muted: bool) -> Result<(), AudioError> {
+                self.inner.set_session_mute(id, is_muted)
+            }
+
+            fn master(&self) -> Result<MasterState, AudioError> {
+                self.inner.master()
+            }
+
+            fn set_master_volume(&self, volume: f32) -> Result<(), AudioError> {
+                self.inner.set_master_volume(volume)
+            }
+
+            fn set_master_mute(&self, is_muted: bool) -> Result<(), AudioError> {
+                self.inner.set_master_mute(is_muted)
+            }
+
+            fn list_output_devices(&self) -> Result<Vec<AudioDevice>, AudioError> {
+                self.inner.list_output_devices()
+            }
+
+            fn set_default_output_device(&self, device: &DeviceId) -> Result<(), AudioError> {
+                self.inner.set_default_output_device(device)
+            }
+
+            fn set_session_output_device(
+                &self,
+                id: &SessionId,
+                device: &DeviceId,
+            ) -> Result<(), AudioError> {
+                self.inner.set_session_output_device(id, device)
+            }
+
+            fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError> {
+                self.inner.read_peaks()
+            }
+
+            fn sessions_may_have_changed(&self) -> Option<bool> {
+                Some(self.has_changed.swap(false, Ordering::AcqRel))
+            }
+        }
+
+        let backend = Arc::new(NotifyingBackend {
+            inner: MockAudioBackend::full_per_app(),
+            has_changed: AtomicBool::new(false),
+        });
+        let gate = Arc::new(MeterGate::default());
+        let emitter = Arc::new(RecordingEmitter::default());
+
+        gate.set_visible(true);
+
+        let mut loop_under_test = MeterLoop::start(
+            Arc::clone(&backend) as Arc<dyn AudioBackend>,
+            Arc::clone(&gate),
+            Arc::clone(&emitter) as Arc<dyn PanelEventEmitter>,
+        );
+
+        thread::sleep(TICK * 3);
+
+        let first = backend.inner.list_sessions().expect("the mock lists sessions")[0]
+            .session_id
+            .clone();
+        backend
+            .inner
+            .set_session_mute(&first, true)
+            .expect("the mock accepts a mute");
+        backend.has_changed.store(true, Ordering::Release);
+
+        thread::sleep(TICK * 3);
+        loop_under_test.stop();
+
+        assert!(
+            emitter.session_batches().len() > 1,
+            "a notified change waited for the poll instead of publishing on the next tick"
+        );
+    }
+
+    /// The §4.1 gate covers this poll too: a hidden panel must cost zero backend reads.
+    #[test]
+    fn publishes_no_sessions_while_the_panel_is_hidden() {
+        let backend: Arc<dyn AudioBackend> = Arc::new(MockAudioBackend::full_per_app());
+        let gate = Arc::new(MeterGate::default());
+        let emitter = Arc::new(RecordingEmitter::default());
+
+        gate.set_visible(false);
+
+        let mut loop_under_test = MeterLoop::start(
+            Arc::clone(&backend),
+            Arc::clone(&gate),
+            Arc::clone(&emitter) as Arc<dyn PanelEventEmitter>,
+        );
+
+        thread::sleep(TICK * 6);
+        loop_under_test.stop();
+
+        assert!(
+            emitter.session_batches().is_empty(),
+            "a hidden panel still polled the session list"
+        );
+    }
+
+    #[test]
+    fn notices_a_session_appearing_or_leaving() {
+        let sessions = |ids: &[&str]| -> Vec<AudioSession> {
+            ids.iter()
+                .map(|id| AudioSession {
+                    session_id: crate::audio::SessionId::from_backend_identifier(id)
+                        .expect("namespaced"),
+                    pid: 1,
+                    display_name: (*id).to_owned(),
+                    process_name: (*id).to_owned(),
+                    icon_data_uri: None,
+                    volume: 0.5,
+                    is_muted: false,
+                    output_device_id: None,
+                    state: crate::audio::SessionState::Active,
+                })
+                .collect()
+        };
+
+        let one = sessions(&["mock:a"]);
+        let two = sessions(&["mock:a", "mock:b"]);
+
+        assert!(have_sessions_changed(&one, &two), "an app appearing");
+        assert!(have_sessions_changed(&two, &one), "an app leaving");
+        assert!(!have_sessions_changed(&one, &one), "an unchanged list");
+    }
+
+    /// Mute is a state the panel renders, so a change to it has to reach the panel even when the
+    /// set of apps is identical.
+    #[test]
+    fn notices_a_mute_change_within_an_unchanged_set() {
+        let base = AudioSession {
+            session_id: crate::audio::SessionId::from_backend_identifier("mock:a")
+                .expect("namespaced"),
+            pid: 1,
+            display_name: "A".to_owned(),
+            process_name: "A".to_owned(),
+            icon_data_uri: None,
+            volume: 0.5,
+            is_muted: false,
+            output_device_id: None,
+            state: crate::audio::SessionState::Active,
+        };
+
+        let muted = AudioSession {
+            is_muted: true,
+            ..base.clone()
+        };
+
+        assert!(have_sessions_changed(
+            std::slice::from_ref(&base),
+            std::slice::from_ref(&muted)
+        ));
     }
 }

@@ -19,10 +19,10 @@ const Row: FC<{ label: string; hint?: string; children: ReactNode }> = ({
   hint,
   children,
 }) => (
-  <div className="flex items-center justify-between gap-3 py-2">
+  <div className="group flex items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 transition-all duration-200 ease-out hover:bg-accent/40 border border-transparent hover:border-border/50">
     <div className="min-w-0 flex-1">
-      <p className="text-label">{label}</p>
-      {hint && <p className="text-caption text-muted-foreground">{hint}</p>}
+      <p className="text-label group-hover:text-foreground transition-colors duration-150">{label}</p>
+      {hint && <p className="text-caption text-muted-foreground transition-colors duration-150">{hint}</p>}
     </div>
     {children}
   </div>
@@ -49,18 +49,18 @@ export const SettingsView: FC<SettingsViewProps> = ({
           type="button"
           variant="ghost"
           size="icon"
-          className="size-7"
+          className="group size-7 shrink-0 transition-transform active:scale-90"
           aria-label="Back to mixer"
           onClick={onClose}
         >
-          <ChevronLeft size={16} strokeWidth={1.75} />
+          <ChevronLeft size={16} strokeWidth={1.75} className="transition-transform duration-200 group-hover:-translate-x-0.5" />
         </Button>
         <p className="text-title">Settings</p>
       </div>
 
       {/* `pr-1` leaves room for the focus ring: the scroll container clips horizontally, and a
           control flush against the right edge loses the outer pixels of its ring. */}
-      <div className="divide-border flex flex-col divide-y overflow-y-auto pr-1">
+      <div className="flex flex-col gap-1.5 overflow-y-auto pr-1 py-1">
         {/* The hint doubles as the way out of recording. Escape is the only exit, and a control
             that says "press keys" gives no clue that one key means cancel. */}
         <Row
