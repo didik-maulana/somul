@@ -1,12 +1,27 @@
 import type React from 'react';
-import { AudioLines, RefreshCw } from 'lucide-react';
+import { AudioLines, RefreshCw, type LucideIcon } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
+
+export interface EmptyStateAction {
+  label: string;
+  icon: LucideIcon;
+  onClick: () => void;
+}
 
 export interface EmptyStateProps {
   headline: string;
   subline: string;
+  /** Defaults to the audio mark. Overridden when the state is about something other than sound. */
+  icon?: LucideIcon;
   onRefresh?: () => void;
+  /**
+   * The one thing that resolves this state, when there is one.
+   *
+   * An empty state that explains a problem without offering its fix reads as a dead end, and a
+   * dead end reads as a broken app.
+   */
+  action?: EmptyStateAction;
 }
 
 /**
@@ -16,14 +31,20 @@ export interface EmptyStateProps {
  * means overriding `currentColor`, and `background-clip: text` breaks the light/dark theme swap
  * along with it.
  */
-export const EmptyState: React.FC<EmptyStateProps> = ({ headline, subline, onRefresh }) => (
+export const EmptyState: React.FC<EmptyStateProps> = ({
+  headline,
+  subline,
+  icon: Icon = AudioLines,
+  onRefresh,
+  action,
+}) => (
   <div
     data-testid="empty-state"
     className="flex flex-1 flex-col items-center justify-center gap-3.5 px-4 text-center"
   >
     <div className="relative flex size-12 items-center justify-center rounded-full bg-accent/60 p-3 shadow-xs">
       <div className="absolute inset-0 rounded-full bg-primary/10 animate-ping opacity-25" />
-      <AudioLines
+      <Icon
         size={24}
         strokeWidth={1.75}
         aria-hidden="true"
@@ -35,6 +56,19 @@ export const EmptyState: React.FC<EmptyStateProps> = ({ headline, subline, onRef
       <p className="text-title max-w-[240px] font-semibold">{headline}</p>
       <p className="text-caption text-muted-foreground max-w-[240px] leading-relaxed">{subline}</p>
     </div>
+
+    {action && (
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className="mt-1 transition-all active:scale-95"
+        onClick={action.onClick}
+      >
+        <action.icon size={14} strokeWidth={1.75} aria-hidden="true" />
+        {action.label}
+      </Button>
+    )}
 
     {onRefresh && (
       <Button

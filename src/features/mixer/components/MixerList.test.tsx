@@ -1,16 +1,15 @@
 import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { MixerList } from '@/features/mixer/components/MixerList';
-import type { PeakStream } from '@/features/mixer/hooks/usePeakStream';
 import type { AudioSession, DeviceId, PlatformCapabilities, SessionId } from '@/types/ipc';
-
-const stubStream: PeakStream = { register: () => () => undefined };
 
 const fullPerApp: PlatformCapabilities = {
   hasPerAppVolume: true,
   hasPerAppMute: true,
   hasPerAppMeter: true,
+  needsAudioPermission: false,
   hasPerAppRouting: false,
   unsupportedReason: null,
 };
@@ -19,6 +18,7 @@ const masterOnly: PlatformCapabilities = {
   hasPerAppVolume: false,
   hasPerAppMute: false,
   hasPerAppMeter: false,
+  needsAudioPermission: false,
   hasPerAppRouting: false,
   unsupportedReason: 'macOS exposes master volume only in v1.',
 };
@@ -40,12 +40,12 @@ const renderList = (overrides: Partial<Parameters<typeof MixerList>[0]> = {}) =>
     <MixerList
       capabilities={fullPerApp}
       sessions={[session('mock:s:1', 'Spotify')]}
-      peakStream={stubStream}
       draggingSessionIds={new Set<SessionId>()}
       onVolumeChange={vi.fn()}
       onVolumeCommit={vi.fn()}
       onMuteToggle={vi.fn()}
       onRefresh={vi.fn()}
+      onOpenAudioPermission={vi.fn()}
       {...overrides}
     />,
   );
@@ -116,5 +116,42 @@ describe('MixerList', () => {
     renderList({ draggingSessionIds: new Set(['mock:s:1' as SessionId]) });
 
     expect(screen.getByTestId('app-audio-row')).toHaveAttribute('data-dragging', 'true');
+  });
+
+  /**
+   * Rows would all be uncontrollable until the permission lands, and the list would also be
+   * wrong: without capture there is no way to tell an app that is playing from one that merely
+   * holds an output stream open.
+   */
+  describe('while audio capture is not granted', () => {
+    const awaitingPermission: PlatformCapabilities = {
+      ...fullPerApp,
+      needsAudioPermission: true,
+      unsupportedReason: 'Somul has not heard any app audio yet.',
+    };
+
+    it('offers the permission instead of the session list', () => {
+      renderList({ capabilities: awaitingPermission });
+
+      expect(screen.getByText('Allow Somul to hear your apps')).toBeInTheDocument();
+      expect(screen.queryByTestId('app-audio-row')).not.toBeInTheDocument();
+    });
+
+    it('renders the backend reason verbatim', () => {
+      renderList({ capabilities: awaitingPermission });
+
+      expect(screen.getByText('Somul has not heard any app audio yet.')).toBeInTheDocument();
+    });
+
+    /** A notice with no way to act on it reads as a dead end, and a dead end reads as a bug. */
+    it('opens the settings pane on request', async () => {
+      const user = userEvent.setup();
+      const onOpenAudioPermission = vi.fn();
+
+      renderList({ capabilities: awaitingPermission, onOpenAudioPermission });
+      await user.click(screen.getByRole('button', { name: /open privacy settings/i }));
+
+      expect(onOpenAudioPermission).toHaveBeenCalledOnce();
+    });
   });
 });

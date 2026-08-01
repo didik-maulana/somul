@@ -3,19 +3,19 @@ import type React from 'react';
 import { EmptyState } from '@/components/common/EmptyState';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AppAudioRow } from '@/features/mixer/components/AppAudioRow';
+import { AudioPermissionNotice } from '@/features/mixer/components/AudioPermissionNotice';
 import { CapabilityNotice } from '@/features/mixer/components/CapabilityNotice';
-import type { PeakStream } from '@/features/mixer/hooks/usePeakStream';
 import type { AudioSession, PlatformCapabilities, SessionId } from '@/types/ipc';
 
 export interface MixerListProps {
   capabilities: PlatformCapabilities | null;
   sessions: AudioSession[];
-  peakStream: PeakStream;
   draggingSessionIds: ReadonlySet<SessionId>;
   onVolumeChange: (session: AudioSession, volume: number) => void;
   onVolumeCommit: (session: AudioSession, volume: number) => void;
   onMuteToggle: (session: AudioSession) => void;
   onRefresh: () => void;
+  onOpenAudioPermission: () => void;
 }
 
 /**
@@ -26,12 +26,12 @@ export interface MixerListProps {
 export const MixerList: React.FC<MixerListProps> = ({
   capabilities,
   sessions,
-  peakStream,
   draggingSessionIds,
   onVolumeChange,
   onVolumeCommit,
   onMuteToggle,
   onRefresh,
+  onOpenAudioPermission,
 }) => {
   if (capabilities === null) {
     return <div data-testid="mixer-loading" className="flex-1" aria-busy="true" />;
@@ -39,6 +39,14 @@ export const MixerList: React.FC<MixerListProps> = ({
 
   if (!capabilities.hasPerAppVolume) {
     return <CapabilityNotice capabilities={capabilities} />;
+  }
+
+  // Ahead of the empty state: "no apps are playing" would be the wrong answer when the truth is
+  // that Somul cannot hear the ones that are.
+  if (capabilities.needsAudioPermission) {
+    return (
+      <AudioPermissionNotice capabilities={capabilities} onOpenSettings={onOpenAudioPermission} />
+    );
   }
 
   if (sessions.length === 0) {
@@ -63,7 +71,6 @@ export const MixerList: React.FC<MixerListProps> = ({
             <li key={session.sessionId}>
               <AppAudioRow
                 session={session}
-                {...(capabilities.hasPerAppMeter ? { peakStream } : {})}
                 isDragging={draggingSessionIds.has(session.sessionId)}
                 onVolumeChange={(volume) => {
                   onVolumeChange(session, volume);

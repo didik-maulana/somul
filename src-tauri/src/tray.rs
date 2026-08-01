@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 
 use tauri::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Manager, Runtime, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, Runtime, WebviewWindow};
 
 use crate::commands::AudioState;
 
@@ -597,9 +597,18 @@ fn resync_master<R: Runtime>(app: &AppHandle<R>) {
 
 /// Hiding must stop the meter loop. Going through the shared state rather than the IPC
 /// command keeps the tray path and the frontend path on one gate.
+///
+/// Showing also tells the panel itself. The window is shown by this process rather than by the
+/// user clicking into it, and an accessory window that never takes key focus gives the webview
+/// no `focus` or `visibilitychange` to hang anything on — so anything in the UI that has to
+/// restart when the panel appears has this event and nothing else.
 fn set_panel_visibility<R: Runtime>(app: &AppHandle<R>, is_visible: bool) {
     if let Some(state) = app.try_state::<AudioState>() {
         state.set_panel_visible(is_visible);
+    }
+
+    if is_visible {
+        let _ = app.emit(crate::PANEL_SHOWN_EVENT, ());
     }
 }
 

@@ -11,9 +11,9 @@ import { MixerList } from "@/features/mixer/components/MixerList";
 import { SettingsView } from "@/features/settings/components/SettingsView";
 import { useSettings } from "@/features/settings/hooks/useSettings";
 import { useAudioSessions } from "@/features/mixer/hooks/useAudioSessions";
-import { usePeakStream } from "@/features/mixer/hooks/usePeakStream";
 import { useVolumeCommit } from "@/features/mixer/hooks/useVolumeCommit";
 import { DEFAULT_HOTKEY } from "@/lib/accelerator";
+import { openAudioPermissionSettings } from "@/lib/ipc";
 import { useAudioStore } from "@/stores/audioStore";
 import type { AudioSession } from "@/types/ipc";
 
@@ -22,7 +22,6 @@ import type { AudioSession } from "@/types/ipc";
  * round trip goes through a feature hook.
  */
 export const App: FC = () => {
-  const peakStream = usePeakStream();
   const sessions = useAudioSessions();
   const master = useMasterVolume();
   const devices = useOutputDevices();
@@ -141,7 +140,6 @@ export const App: FC = () => {
           <MixerList
             capabilities={capabilities}
             sessions={sessions.sessions}
-            peakStream={peakStream}
             draggingSessionIds={draggingSessionIds}
             onVolumeChange={handleSessionVolumeChange}
             onVolumeCommit={handleSessionVolumeCommit}
@@ -149,6 +147,9 @@ export const App: FC = () => {
               void sessions.toggleMute(session);
             }}
             onRefresh={sessions.refresh}
+            onOpenAudioPermission={() => {
+              void openAudioPermissionSettings();
+            }}
           />
         )}
       </div>

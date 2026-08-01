@@ -54,12 +54,6 @@ export interface MasterState {
   isVolumeControllable: boolean;
 }
 
-export interface SessionPeak {
-  sessionId: SessionId;
-  /** Linear amplitude 0.0–1.0. */
-  peak: number;
-}
-
 export interface PlatformCapabilities {
   hasPerAppVolume: boolean;
   hasPerAppMute: boolean;
@@ -67,6 +61,13 @@ export interface PlatformCapabilities {
   hasPerAppRouting: boolean;
   /** Rendered verbatim by the UI in place of the session list. */
   unsupportedReason: string | null;
+  /**
+   * Per-app volume works on this platform, but the OS has not granted the access it needs.
+   *
+   * Distinct from an absent capability: the panel offers the permission instead of listing apps
+   * whose sliders would move nothing.
+   */
+  needsAudioPermission: boolean;
 }
 
 export type AudioErrorKind =

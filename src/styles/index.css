@@ -339,23 +339,6 @@
   background-image: linear-gradient(135deg, #293681 0%, #4274d9 55%, #95ccdd 100%);
 }
 
-/* The halo around an app's speaker tile. `--peak-level` is written by the shared rAF loop, so the
-   ring is live data on the same terms as the peak meter (§7) rather than an idle decorative loop:
-   at silence it is fully transparent and completely still.
-
-   Reduced motion drops the scale term and keeps the opacity term. Freezing it outright would
-   delete the signal; the travel is what carries the vestibular risk, not the fade. */
-@utility speaker-ring {
-  --peak-level: 0;
-  transform-origin: center;
-  transform: scale(calc(1 + var(--peak-level) * 0.18));
-  opacity: calc(var(--peak-level) * 0.85);
-
-  @media (prefers-reduced-motion: reduce) {
-    transform: none;
-  }
-}
-
 @utility animated-circular-gradient {
   background: radial-gradient(circle, #4274d9 0%, #293681 50%, transparent 70%);
   animation: circular-gradient-float 10s ease-in-out infinite alternate;
@@ -367,7 +350,9 @@
 
 @utility animated-circular-gradient-secondary {
   background: radial-gradient(circle, #95ccdd 0%, #345cb4 50%, transparent 70%);
-  animation: circular-gradient-float-secondary 14s ease-in-out infinite alternate;
+  /* Offset into its own cycle so the two gradients are never in step, and so this one is already
+     travelling on the first frame after the panel opens. */
+  animation: circular-gradient-float-secondary 14s ease-in-out infinite alternate -6s;
 
   @media (prefers-reduced-motion: reduce) {
     animation: none;
@@ -386,6 +371,10 @@
   }
 }
 
+/* Negative delays, not positive ones. The stagger has to look like four rings caught mid-flight
+   the instant the panel opens; positive delays start each ring at the beginning of its cycle, so
+   three of the four sat invisible for up to 7.5 s after every restart and the mesh read as
+   frozen. A negative delay starts the animation as though it had already been running. */
 .audio-circle-1 {
   animation-delay: 0s;
   background: radial-gradient(
@@ -397,7 +386,7 @@
 }
 
 .audio-circle-2 {
-  animation-delay: 2.5s;
+  animation-delay: -2.5s;
   background: radial-gradient(
     circle at center,
     color-mix(in srgb, var(--info) 30%, transparent) 0%,
@@ -407,7 +396,7 @@
 }
 
 .audio-circle-3 {
-  animation-delay: 5s;
+  animation-delay: -5s;
   background: radial-gradient(
     circle at center,
     color-mix(in srgb, var(--ring) 32%, transparent) 0%,
@@ -417,7 +406,7 @@
 }
 
 .audio-circle-4 {
-  animation-delay: 7.5s;
+  animation-delay: -7.5s;
   background: radial-gradient(
     circle at center,
     color-mix(in srgb, var(--primary-stroke) 28%, transparent) 0%,

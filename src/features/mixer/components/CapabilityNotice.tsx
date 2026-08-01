@@ -1,4 +1,5 @@
 import type React from 'react';
+import { SlidersHorizontal } from 'lucide-react';
 
 import { EmptyState } from '@/components/common/EmptyState';
 import type { PlatformCapabilities } from '@/types/ipc';
@@ -18,9 +19,13 @@ const FALLBACK_REASON =
  *
  * An empty state that explains the limitation is honest. A row of dead sliders is not — which is
  * why nothing in this component renders a session row.
+ *
+ * No action either: the platform cannot do this, so there is nothing the user could press to
+ * change it.
  */
 export const CapabilityNotice: React.FC<CapabilityNoticeProps> = ({ capabilities }) => (
   <EmptyState
+    icon={SlidersHorizontal}
     headline="Per-app mixing unavailable"
     subline={capabilities.unsupportedReason ?? FALLBACK_REASON}
   />

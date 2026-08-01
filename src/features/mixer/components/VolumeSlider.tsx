@@ -78,22 +78,36 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
       }}
       className={cn(
         '[&_[data-slot=slider-track]]:h-1 [&_[data-slot=slider-track]]:rounded-full [&_[data-slot=slider-track]]:bg-black/14 dark:[&_[data-slot=slider-track]]:bg-white/12',
+        // Muting drains the fill rather than swapping it for a flat colour, so every slider in
+        // the panel reads the same way whether its fill is `primary` or the master's gradient.
+        // A gradient is a background *image* and cannot tween to a colour; draining can.
+        '[&_[data-slot=slider-range]]:bg-primary',
+        isMuted && '[&_[data-slot=slider-range]]:opacity-45 [&_[data-slot=slider-range]]:grayscale',
+        // Every transition on the range lives in one property list. tailwind-merge folds separate
+        // `transition-*` classes into a single group and keeps only the last, which is how a
+        // second one silently deleted the position easing this branch exists for.
+        //
         // Radix positions the range and the thumb with `left`/`right` percentages, so those are
         // the properties that have to ease. Linear over exactly one sample interval means each
         // sample arrives as the previous one finishes, and the steps read as continuous motion.
-        hasSmoothMotion && [
-          '[&_[data-slot=slider-range]]:transition-[left,right]',
-          '[&_[data-slot=slider-range]]:duration-[var(--master-sync-duration)]',
-          '[&_[data-slot=slider-range]]:ease-linear',
-          '[&_span:has(>[data-slot=slider-thumb])]:transition-[left]',
-          '[&_span:has(>[data-slot=slider-thumb])]:duration-[var(--master-sync-duration)]',
-          '[&_span:has(>[data-slot=slider-thumb])]:ease-linear',
-          'motion-reduce:[&_[data-slot=slider-range]]:transition-none',
-          'motion-reduce:[&_span:has(>[data-slot=slider-thumb])]:transition-none',
-        ],
-        isMuted
-          ? '[&_[data-slot=slider-range]]:bg-muted'
-          : '[&_[data-slot=slider-range]]:bg-primary',
+        hasSmoothMotion
+          ? [
+              '[&_[data-slot=slider-range]]:transition-[left,right,filter,opacity]',
+              '[&_[data-slot=slider-range]]:duration-[var(--master-sync-duration)]',
+              '[&_[data-slot=slider-range]]:ease-linear',
+              '[&_span:has(>[data-slot=slider-thumb])]:transition-[left]',
+              '[&_span:has(>[data-slot=slider-thumb])]:duration-[var(--master-sync-duration)]',
+              '[&_span:has(>[data-slot=slider-thumb])]:ease-linear',
+              'motion-reduce:[&_[data-slot=slider-range]]:transition-none',
+              'motion-reduce:[&_span:has(>[data-slot=slider-thumb])]:transition-none',
+            ]
+          : [
+              // The drain still eases while position does not: muting is a state change worth
+              // showing as one, and the fill's length has to track the pointer exactly.
+              '[&_[data-slot=slider-range]]:transition-[filter,opacity]',
+              '[&_[data-slot=slider-range]]:duration-200',
+              'motion-reduce:[&_[data-slot=slider-range]]:transition-none',
+            ],
         '[&_[data-slot=slider-thumb]]:size-3.5 [&_[data-slot=slider-thumb]]:border-white/20 [&_[data-slot=slider-thumb]]:bg-[#FCFCFD]',
         '[&_[data-slot=slider-thumb]]:shadow-[0_1px_3px_rgba(0,0,0,0.4)]',
         '[&_[data-slot=slider-thumb]]:transition-[transform,box-shadow] [&_[data-slot=slider-thumb]]:duration-[140ms]',

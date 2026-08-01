@@ -1,5 +1,6 @@
 import type React from 'react';
 
+import { PanelBackdrop } from '@/components/common/PanelBackdrop';
 import { cn } from '@/lib/utils';
 
 export interface PanelShellProps {
@@ -31,19 +32,7 @@ export const PanelShell: React.FC<PanelShellProps> = ({
       className,
     )}
   >
-    {/* Animated circular gradient background mesh */}
-    <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden rounded-2xl">
-      <div className="animated-circular-gradient absolute -left-20 -top-20 size-72 rounded-full opacity-25 blur-3xl" />
-      <div className="animated-circular-gradient-secondary absolute -bottom-24 -right-24 size-80 rounded-full opacity-20 blur-3xl" />
-
-      {/* Concentric thick background band audio circle animation layers centered in the panel */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div className="audio-circle-ring audio-circle-1 absolute size-60 rounded-full blur-xs" />
-        <div className="audio-circle-ring audio-circle-2 absolute size-60 rounded-full blur-xs" />
-        <div className="audio-circle-ring audio-circle-3 absolute size-60 rounded-full blur-xs" />
-        <div className="audio-circle-ring audio-circle-4 absolute size-60 rounded-full blur-xs" />
-      </div>
-    </div>
+    <PanelBackdrop />
 
     {header}
     <div className="flex min-h-0 flex-1 flex-col px-3 py-2">{children}</div>

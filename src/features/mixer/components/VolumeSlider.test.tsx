@@ -85,8 +85,11 @@ describe('VolumeSlider', () => {
     expect(slider).toHaveAttribute('aria-valuenow', '100');
   });
 
-  /** A muted row drops its slider fill to `muted`. */
-  it('drops the range to the muted fill when muted', () => {
+  /**
+   * Drained, not recoloured. The master's fill is a gradient, which is a background image and
+   * cannot tween to a flat colour, so a colour swap would make the two sliders mute differently.
+   */
+  it('drains the range when muted rather than swapping its fill', () => {
     const { container } = render(
       <VolumeSlider
         volume={0.5}
@@ -97,7 +100,8 @@ describe('VolumeSlider', () => {
     );
 
     expect(container.firstElementChild).toHaveClass(
-      '[&_[data-slot=slider-range]]:bg-muted',
+      '[&_[data-slot=slider-range]]:grayscale',
+      '[&_[data-slot=slider-range]]:opacity-45',
     );
   });
 
@@ -153,7 +157,7 @@ describe('VolumeSlider', () => {
     const root = container.firstElementChild;
 
     expect(root).toHaveClass(
-      '[&_[data-slot=slider-range]]:transition-[left,right]',
+      '[&_[data-slot=slider-range]]:transition-[left,right,filter,opacity]',
       '[&_span:has(>[data-slot=slider-thumb])]:transition-[left]',
     );
   });

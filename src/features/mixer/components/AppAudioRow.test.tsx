@@ -3,10 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { AppAudioRow } from '@/features/mixer/components/AppAudioRow';
-import type { PeakStream } from '@/features/mixer/hooks/usePeakStream';
 import type { AudioSession, DeviceId, SessionId } from '@/types/ipc';
-
-const stubStream: PeakStream = { register: () => () => undefined };
 
 const session = (overrides: Partial<AudioSession> = {}): AudioSession => ({
   sessionId: 'mock:session:spotify' as SessionId,
@@ -29,7 +26,6 @@ const renderRow = (overrides: Partial<Parameters<typeof AppAudioRow>[0]> = {}) =
   render(
     <AppAudioRow
       session={session()}
-      peakStream={stubStream}
       onVolumeChange={onVolumeChange}
       onVolumeCommit={onVolumeCommit}
       onMuteToggle={onMuteToggle}
@@ -64,17 +60,10 @@ describe('AppAudioRow', () => {
     expect(name).toHaveClass('truncate');
   });
 
-  /** 64 px with the meter, 52 px without. Derived from the content stack, not chosen. */
-  it('is taller when the peak meter renders', () => {
+  it('holds one height for every row, so the list scans as a column', () => {
     const { row } = renderRow();
+
     expect(row).toHaveClass('h-16');
-  });
-
-  it('is shorter when the platform has no per-app metering', () => {
-    const { row } = renderRow({ peakStream: undefined });
-
-    expect(row).toHaveClass('h-13');
-    expect(screen.queryByTestId('peak-meter')).not.toBeInTheDocument();
   });
 
   it('falls back to a gradient tile when the OS supplies no icon', () => {
@@ -90,17 +79,28 @@ describe('AppAudioRow', () => {
   });
 
   /**
-   * The logo is the mute control. A row carrying a separate mute button as well would offer two
-   * controls for one action, and the second one is what a user would learn to ignore.
+   * The logo identifies the app and the glyph mutes it. Exactly one of them is a control, so the
+   * row never offers two targets for one action.
    */
-  it('exposes exactly one mute control, and it is the app tile', () => {
+  it('exposes exactly one mute control, and the logo is not it', () => {
     renderRow();
 
     const controls = screen.getAllByRole('button');
 
     expect(controls).toHaveLength(1);
-    expect(controls[0]).toBe(screen.getByTestId('app-speaker'));
+    expect(controls[0]).toBe(screen.getByTestId('mute-toggle'));
     expect(controls[0]).toHaveAccessibleName('Mute Spotify');
+  });
+
+  /** The name reads on its own line, so a long one never squeezes the slider beside it. */
+  it('stacks the name above the slider row', () => {
+    renderRow();
+
+    const name = screen.getByTitle('Spotify');
+    const sliderRow = screen.getByRole('slider').closest('div');
+
+    expect(name.parentElement).not.toBe(sliderRow);
+    expect(name.parentElement?.parentElement).toBe(sliderRow?.parentElement);
   });
 
   describe('the six row states', () => {
@@ -111,29 +111,35 @@ describe('AppAudioRow', () => {
       expect(row).toHaveAttribute('data-state', 'active');
     });
 
-    it('2. hover — shifts to the accent surface', () => {
-      const { row } = renderRow();
-
-      expect(row).toHaveClass('hover:bg-accent', 'hover:border-border');
-    });
-
-    it('3. focus-within — ring offset against popover, not background', () => {
+    /** Hover borrows the master card's surface, so the two read as one family of control. */
+    it('2. hover — lifts onto the master card surface', () => {
       const { row } = renderRow();
 
       expect(row).toHaveClass(
-        'focus-within:ring-2',
-        'focus-within:ring-ring',
-        'focus-within:ring-offset-2',
-        'focus-within:ring-offset-background',
+        'hover:bg-card',
+        'hover:border-border',
+        'hover:card-raised',
+        'hover:backdrop-blur-md',
       );
     });
 
-    it('4. muted — name dimmed, MUTED chip shown, meter at 30% opacity', () => {
+    /**
+     * Focus is shown on the control that has it, never on the row around it. A row-level ring
+     * stayed lit for the whole of a slider drag, which reads as an error state on the row.
+     */
+    it('3. focus — the ring belongs to the control, not the row', () => {
+      const { row } = renderRow();
+
+      expect(row.className).not.toMatch(/focus-within:ring/);
+      expect(screen.getByRole('slider').className).toMatch(/focus-visible:ring/);
+      expect(screen.getByTestId('mute-toggle').className).toMatch(/focus-visible:ring/);
+    });
+
+    it('4. muted — name dimmed and the MUTED chip shown', () => {
       renderRow({ session: session({ isMuted: true }) });
 
       expect(screen.getByText('MUTED')).toBeInTheDocument();
       expect(screen.getByText('Spotify')).toHaveClass('text-muted-foreground');
-      expect(screen.getByTestId('peak-meter')).toHaveClass('opacity-30');
     });
 
     it('5. dragging — e2 elevation', () => {

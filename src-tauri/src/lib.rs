@@ -36,6 +36,9 @@ PulseAudio fallback) in src-tauri/src/audio/linux/ and select it here."
 );
 
 pub const PANEL_LABEL: &str = "main";
+
+/// Emitted every time the panel comes on screen.
+pub const PANEL_SHOWN_EVENT: &str = "panel://shown";
 pub const PANEL_WIDTH: f64 = 360.0;
 pub const PANEL_HEIGHT: f64 = 520.0;
 

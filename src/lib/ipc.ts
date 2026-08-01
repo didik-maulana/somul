@@ -16,7 +16,6 @@ import type {
   MasterState,
   PlatformCapabilities,
   SessionId,
-  SessionPeak,
   SettingsUpdate,
 } from '@/types/ipc';
 
@@ -184,8 +183,19 @@ export const setHotkeyCapture = (isCapturing: boolean): Promise<void> =>
 export const setPanelAppearance = (isDark: boolean): Promise<void> =>
   mutation('set_panel_appearance', { isDark });
 
+/** Opens the Privacy & Security pane where macOS grants audio capture. */
+export const openAudioPermissionSettings = (): Promise<void> =>
+  mutation('open_audio_permission_settings');
+
+/** Fires every time the tray puts the panel on screen. */
+export const PANEL_SHOWN_EVENT = 'panel://shown';
+
+export const onPanelShown = (onEvent: () => void): Promise<UnlistenFn> =>
+  listen(PANEL_SHOWN_EVENT, () => {
+    onEvent();
+  });
+
 export const AUDIO_EVENT = {
-  peaks: 'audio://peaks',
   sessionsChanged: 'audio://sessions-changed',
   masterChanged: 'audio://master-changed',
   masterResync: 'audio://master-resync',
@@ -194,11 +204,6 @@ export const AUDIO_EVENT = {
 } as const;
 
 /** One batch per tick covering every session — never one emit per session. */
-export const onPeaks = (onEvent: (peaks: SessionPeak[]) => void): Promise<UnlistenFn> =>
-  listen<SessionPeak[]>(AUDIO_EVENT.peaks, ({ payload }) => {
-    onEvent(payload);
-  });
-
 export const onSessionsChanged = (
   onEvent: (sessions: AudioSession[]) => void,
 ): Promise<UnlistenFn> =>

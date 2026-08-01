@@ -12,7 +12,7 @@ import type {
 /**
  * Peaks are **absent from this store by construction**. They arrive at 30 Hz, and routing them
  * through Zustand would re-render every subscriber thirty times a second. They live in refs
- * driven by the shared rAF loop instead — see `usePeakStream`.
+ * never held here.
  */
 export interface AudioStoreState {
   sessions: AudioSession[];

@@ -1,4 +1,4 @@
-import type React from 'react';
+import { useEffect, useState, type FC, type ReactNode } from 'react';
 import {
   Headphones,
   Laptop,
@@ -24,7 +24,7 @@ export interface MasterVolumeCardProps {
   /** False while the user is dragging — see {@link VolumeSlider.hasSmoothMotion}. */
   hasSmoothMotion?: boolean;
   /** Rendered at the end of the device row — the output device picker. */
-  deviceSelector?: React.ReactNode;
+  deviceSelector?: ReactNode;
 }
 
 const ENTER_MOTION =
@@ -52,7 +52,7 @@ const DEVICE_GLYPHS: Record<DeviceKind, LucideIcon> = {
  * allowed at all. Rank is otherwise carried by the readout: `text-readout` against an app row's
  * `text-numeric`, and no extra chrome.
  */
-export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
+export const MasterVolumeCard: FC<MasterVolumeCardProps> = ({
   master,
   onVolumeChange,
   onVolumeCommit,
@@ -67,6 +67,22 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
   // than on the component keeps the three volume icons from sharing one instance.
   const volumeIconState = isMuted ? 'muted' : volume > 0.5 ? 'loud' : 'quiet';
 
+  // The card unmounts while settings is open, so coming back is a fresh mount. Radix positions
+  // the range with `left`/`right`, and with the easing already on the element the browser tweens
+  // that first paint from zero to the real level — the slider appears to sweep up on its own.
+  // Easing is therefore withheld until the mounted value has painted once.
+  const [hasPainted, setHasPainted] = useState(false);
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      setHasPainted(true);
+    });
+
+    return () => {
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
   return (
     <section
       data-testid="master-volume-card"
@@ -75,7 +91,8 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
       className={cn(
         'bg-card backdrop-blur-md border-border card-raised flex shrink-0 flex-col gap-2.5 rounded-lg border p-3 shadow-xs',
         'transition-[background-color,border-color] duration-200 ease-[var(--ease-standard)]',
-        'hover:border-ring/35 focus-within:border-ring/45',
+        // Hover only. A focus-within tint lit the whole card blue for the length of a drag.
+        'hover:border-ring/35',
         ENTER_MOTION,
       )}
     >
@@ -144,15 +161,10 @@ export const MasterVolumeCard: React.FC<MasterVolumeCardProps> = ({
           isDisabled={!isVolumeControllable}
           onVolumeChange={onVolumeChange}
           onVolumeCommit={onVolumeCommit}
-          hasSmoothMotion={hasSmoothMotion}
-          className={cn(
-            'min-w-0 flex-1 [&_[data-slot=slider-range]]:bg-signature',
-            // The gradient is a background *image*, which cannot tween to a flat colour. Draining
-            // it instead lets the mute toggle land as one continuous move across the whole card.
-            '[&_[data-slot=slider-range]]:transition-[filter,opacity] [&_[data-slot=slider-range]]:duration-200 [&_[data-slot=slider-range]]:ease-[var(--ease-standard)]',
-            'motion-reduce:[&_[data-slot=slider-range]]:transition-none',
-            isMuted && '[&_[data-slot=slider-range]]:opacity-45 [&_[data-slot=slider-range]]:grayscale',
-          )}
+          hasSmoothMotion={hasSmoothMotion && hasPainted}
+          // Only the fill colour differs from an app row. Muting drains it, and that behaviour
+          // lives in `VolumeSlider` so both surfaces mute identically.
+          className="min-w-0 flex-1 [&_[data-slot=slider-range]]:bg-signature"
         />
 
         <span
