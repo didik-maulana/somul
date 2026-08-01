@@ -10,23 +10,63 @@ const prefersDark = (): boolean => window.matchMedia(DARK_QUERY).matches;
 
 const resolve = (): boolean => (preference === 'system' ? prefersDark() : preference === 'dark');
 
-/** Tracks the last value pushed to the window, so an unchanged theme costs no IPC. */
-let lastAppliedIsDark: boolean | null = null;
+/**
+ * The last value pushed to the window, so an unchanged theme costs no IPC.
+ *
+ * `'system'` is a value of its own rather than the boolean it currently resolves to. Following
+ * the system is not the same instruction as forcing the colour the system happens to want right
+ * now, and collapsing the two is what left the window pinned after the OS changed.
+ */
+let lastPushed: 'dark' | 'light' | 'system' | null = null;
+
+/**
+ * Suppresses colour transitions across the swap itself.
+ *
+ * Two frames, not one: the class has to be in the stylesheet's hands before the `dark` class
+ * lands, and released only after the browser has painted with the new colours.
+ */
+const swapInstantly = (toggleTheme: () => void): void => {
+  const root = document.documentElement;
+
+  root.classList.add('theme-instant');
+  toggleTheme();
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      root.classList.remove('theme-instant');
+    });
+  });
+};
+
+let lastResolvedIsDark: boolean | null = null;
 
 const apply = (): void => {
   const isDark = resolve();
 
-  document.documentElement.classList.toggle('dark', isDark);
+  if (isDark === lastResolvedIsDark) {
+    document.documentElement.classList.toggle('dark', isDark);
+  } else {
+    lastResolvedIsDark = isDark;
+    swapInstantly(() => {
+      document.documentElement.classList.toggle('dark', isDark);
+    });
+  }
 
-  if (isDark === lastAppliedIsDark) {
+  const next = preference === 'system' ? 'system' : isDark ? 'dark' : 'light';
+
+  if (next === lastPushed) {
     return;
   }
 
-  lastAppliedIsDark = isDark;
+  lastPushed = next;
 
   // The blur behind the panel follows the *window's* appearance, not the CSS. Forcing light
   // while macOS is dark would otherwise leave light content sitting on a dark surface.
-  void setPanelAppearance(isDark).catch(() => undefined);
+  //
+  // Under `system` the override is cleared instead of being set to today's answer. A forced
+  // appearance also pins `prefers-color-scheme` in this WebView, so leaving one in place would
+  // make `resolve()` keep reading back whatever was last forced rather than what macOS wants.
+  void setPanelAppearance(next === 'system' ? null : isDark).catch(() => undefined);
 };
 
 /**

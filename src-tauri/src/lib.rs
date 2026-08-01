@@ -377,12 +377,21 @@ pub fn place_macos_panel<R: tauri::Runtime>(
 /// user who forces light while macOS is dark gets light content on a dark blur — the theme
 /// override would apply to everything except the surface behind it.
 #[cfg(target_os = "macos")]
-pub fn set_macos_appearance<R: tauri::Runtime>(panel: &WebviewWindow<R>, is_dark: bool) {
+pub fn set_macos_appearance<R: tauri::Runtime>(panel: &WebviewWindow<R>, is_dark: Option<bool>) {
     use objc2_app_kit::{
         NSAppearance, NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua,
     };
 
     let Some(window) = macos_window(panel) else {
+        return;
+    };
+
+    // `None` clears the override rather than picking a side, and clearing it is the whole point:
+    // a window with a forced appearance also forces `prefers-color-scheme` inside its WebView, so
+    // the page stops being able to see what macOS actually wants. Following the system again has
+    // to mean handing the decision back, not guessing what the system would have said.
+    let Some(is_dark) = is_dark else {
+        window.setAppearance(None);
         return;
     };
 

@@ -180,7 +180,8 @@ export const setHotkeyCapture = (isCapturing: boolean): Promise<void> =>
  * The blur behind the panel follows the window's appearance rather than the CSS, so forcing a
  * theme has to reach the native window too or the surface stays on the other one.
  */
-export const setPanelAppearance = (isDark: boolean): Promise<void> =>
+/** `null` hands the window's appearance back to macOS. */
+export const setPanelAppearance = (isDark: boolean | null): Promise<void> =>
   mutation('set_panel_appearance', { isDark });
 
 /** Opens the Privacy & Security pane where macOS grants audio capture. */

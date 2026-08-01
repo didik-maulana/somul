@@ -9,12 +9,17 @@ pub fn set_panel_visibility(state: State<'_, AudioState>, is_visible: bool) {
     state.set_panel_visible(is_visible);
 }
 
-/// Matches the window's own appearance to the resolved theme.
+/// Matches the window's own appearance to the resolved theme, or hands it back to macOS.
 ///
 /// The vibrancy material behind the panel follows the window appearance, not the CSS, so without
 /// this a user who forces light while macOS is dark gets light content on a dark blur.
+///
+/// `None` means the user chose to follow the system. It has to clear the override rather than
+/// resolve it here, because a forced appearance also pins `prefers-color-scheme` inside the
+/// WebView: once the window was told to be light, the page could no longer see that macOS was
+/// dark, and switching back to "system" left it stuck on whatever had been forced last.
 #[tauri::command]
-pub fn set_panel_appearance<R: Runtime>(window: Window<R>, is_dark: bool) {
+pub fn set_panel_appearance<R: Runtime>(window: Window<R>, is_dark: Option<bool>) {
     // `not(test)` for the same reason as `tray::apply_pin`: AppKit calls made against a mock
     // window crash the test binary inside Tauri's own handle lookup.
     #[cfg(all(target_os = "macos", not(test)))]

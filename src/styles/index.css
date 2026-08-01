@@ -517,6 +517,16 @@
     @apply border-border;
   }
 
+  /* Held for one frame while the theme swaps. Surfaces take their new colour from a variable and
+     change instantly; anything carrying `transition-colors` for its hover state would otherwise
+     spend that transition wearing the old theme's text colour over the new theme's background,
+     which reads as the labels blinking. The transitions exist for hover, not for this. */
+  .theme-instant *,
+  .theme-instant *::before,
+  .theme-instant *::after {
+    transition: none !important;
+  }
+
   /* The window is transparent and the panel draws its own rounded surface, so nothing above the
      panel may paint a background — an opaque body fills the square window and shows through at
      the four corners as hard edges no border-radius on the panel can hide.
