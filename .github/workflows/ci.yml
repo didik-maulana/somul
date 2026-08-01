@@ -22,25 +22,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [windows-latest, macos-latest, ubuntu-22.04]
+        # macOS only while the first release is being cut. There is no Windows or Linux audio
+        # adapter yet, so `platform_backend` in src-tauri/src/lib.rs fails those targets by name
+        # and both runners would spend their minutes reaching the same compile_error. Restore
+        # `windows-latest` and `ubuntu-22.04` here, plus the Linux dependency step below, when
+        # their adapters land.
+        platform: [macos-latest]
 
     steps:
       - uses: actions/checkout@v4
 
-      # WebKitGTK, the tray indicator, and both Linux audio
-      # backends are system packages — cargo cannot supply them.
-      - name: Install Linux system dependencies
-        if: matrix.platform == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            build-essential \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libpipewire-0.3-dev \
-            libpulse-dev
+      # Re-arm together with `ubuntu-22.04` above. WebKitGTK, the tray indicator, and both Linux
+      # audio backends are system packages — cargo cannot supply them.
+      # - name: Install Linux system dependencies
+      #   if: matrix.platform == 'ubuntu-22.04'
+      #   run: |
+      #     sudo apt-get update
+      #     sudo apt-get install -y \
+      #       libwebkit2gtk-4.1-dev \
+      #       build-essential \
+      #       libssl-dev \
+      #       libayatana-appindicator3-dev \
+      #       librsvg2-dev \
+      #       libpipewire-0.3-dev \
+      #       libpulse-dev
 
       - uses: actions/setup-node@v4
         with:
