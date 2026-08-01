@@ -39,17 +39,25 @@ pub fn set_panel_appearance<R: Runtime>(window: Window<R>, is_dark: bool) {
 /// one thing standing between a listed app and a working slider, and a notice with no action is
 /// how a user concludes the app is broken.
 ///
-/// Anchored at Privacy rather than a named service. macOS moves audio capture between anchors
-/// across releases, and a stale anchor opens nothing at all, where the root pane always opens.
+/// Anchored at the audio-capture pane, with the Privacy root as a fallback.
+///
+/// The service Somul needs is `kTCCServiceAudioCapture`, which macOS presents under Screen &
+/// System Audio Recording - not under Microphone, which is a different service entirely and the
+/// one a user looking for an audio permission reaches for first. Landing them on the right pane
+/// is most of the fix. The root is kept behind it because an anchor macOS does not recognise
+/// opens nothing at all, and Settings not opening reads as the button being broken.
 #[tauri::command]
 pub fn open_audio_permission_settings() -> Result<(), crate::audio::AudioError> {
     #[cfg(all(target_os = "macos", not(test)))]
     {
+        const AUDIO_CAPTURE_PANE: &str =
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture";
         const PRIVACY_PANE: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy";
 
         std::process::Command::new("open")
-            .arg(PRIVACY_PANE)
+            .arg(AUDIO_CAPTURE_PANE)
             .spawn()
+            .or_else(|_| std::process::Command::new("open").arg(PRIVACY_PANE).spawn())
             .map_err(|error| {
                 crate::audio::AudioError::BackendFailure(format!(
                     "could not open System Settings: {error}"

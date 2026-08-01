@@ -72,7 +72,9 @@ const SIGNAL_FLOOR: f32 = 0.0001;
 ///
 /// Generous by realtime standards and invisible next to opening a panel. It is paid once per
 /// rebuild, on the meter thread, and only ever in full when the mix has actually failed.
-const MIX_START_TIMEOUT: Duration = Duration::from_millis(400);
+/// Generous on purpose. This only delays a build that has already failed, and a wrong verdict
+/// here is expensive: it drops the taps that were about to start carrying the user's audio.
+const MIX_START_TIMEOUT: Duration = Duration::from_millis(900);
 const MIX_START_POLL: Duration = Duration::from_millis(5);
 
 /// How long a tap set may hear nothing at all before the panel offers the permission as the
@@ -80,13 +82,124 @@ const MIX_START_POLL: Duration = Duration::from_millis(5);
 /// who has just opened the panel and is wondering why nothing works.
 const SILENCE_VERDICT: Duration = Duration::from_secs(6);
 
+/// Where the engine records that macOS has, at least once, let it capture audio.
+///
+/// Silence is ambiguous on its own: a tap that is refused and a machine where nothing happens to
+/// be playing both deliver zero. The difference matters, because one of them should send the user
+/// to System Settings and the other should say "no audio playing" - and getting it wrong means
+/// accusing the permission every time the room goes quiet.
+///
+/// Once capture has worked, that ambiguity is gone for good on this machine, so it is worth
+/// remembering across runs. A marker file rather than a setting: this is something observed about
+/// the OS, not something the user chose, and it has no business in a settings panel.
+fn capture_proof_path() -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")?;
+
+    Some(
+        std::path::PathBuf::from(home)
+            .join("Library/Application Support/com.somul.app")
+            .join("capture-proven"),
+    )
+}
+
+/// Whether capture has ever succeeded here, in this run or any earlier one.
+///
+/// Always false under test. The suite runs unsigned, so it can never capture, and a marker left
+/// by the real app would otherwise make it treat every silent session as one to hide - quietly
+/// turning the contract checks that need a session into no-ops.
+#[cfg(test)]
+fn capture_ever_proven() -> bool {
+    false
+}
+
+#[cfg(not(test))]
+fn capture_ever_proven() -> bool {
+    // Cached, but revocable: the permission can be taken away while Somul is running, and a
+    // `OnceLock` would keep insisting capture works for the rest of the session.
+    const UNKNOWN: u8 = 0;
+    const PROVEN: u8 = 1;
+    const UNPROVEN: u8 = 2;
+
+    static STATE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(UNKNOWN);
+
+    match STATE.load(Ordering::Relaxed) {
+        PROVEN => true,
+        UNPROVEN => false,
+        _ => {
+            let proven = capture_proof_path().is_some_and(|path| path.exists());
+
+            STATE.store(if proven { PROVEN } else { UNPROVEN }, Ordering::Relaxed);
+
+            proven
+        }
+    }
+}
+
+/// Forgets that capture ever worked, on disk and in the cache.
+///
+/// Called when a tap set that started muted on the strength of the marker hears nothing at all.
+/// The permission has been revoked since, and leaving the marker would keep muting apps Somul
+/// can no longer hear - which is the one failure this whole design exists to prevent.
+#[cfg(not(test))]
+fn forget_capture_proof() {
+    if let Some(path) = capture_proof_path() {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+#[cfg(test)]
+fn forget_capture_proof() {}
+
+#[cfg_attr(test, allow(dead_code))]
+fn record_capture_proof() {
+    let Some(path) = capture_proof_path() else {
+        return;
+    };
+
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+
+    let _ = std::fs::write(&path, b"macOS has allowed Somul to capture app audio on this Mac.\n");
+}
+
+/// Reports what the tap engine is doing, on stderr, in a debug build only.
+///
+/// Whether macOS is letting Somul capture is not observable from the outside: an unauthorised tap
+/// is created successfully, reports channels, and returns silence. Without this the only symptom
+/// is a panel full of rows that will not move, which looks identical to a dozen other faults.
+/// Enabled in a debug build, or by `SOMUL_TAP_DIAGNOSTICS=1` in any build. The env var matters:
+/// a TCC grant follows the code signature, so the bundled app and a `cargo` build are different
+/// identities to macOS, and the one that holds the permission is the one worth watching.
+macro_rules! diagnose {
+    ($($argument:tt)*) => {
+        if $crate::audio::macos::engine::is_diagnosing() {
+            eprintln!("[somul::taps] {}", format!($($argument)*));
+        }
+    };
+}
+
+pub(super) fn is_diagnosing() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+
+    *ENABLED.get_or_init(|| {
+        cfg!(debug_assertions) || std::env::var_os("SOMUL_TAP_DIAGNOSTICS").is_some()
+    })
+}
+
+/// How often an unproven tap set is rebuilt to re-ask macOS whether it may capture.
+///
+/// Short, because this is the whole latency between a user granting the permission and the panel
+/// working. Rebuilding passthrough taps is inaudible, so the only cost is the CoreAudio calls.
+const CAPTURE_RETRY: Duration = Duration::from_secs(3);
+
 impl SessionControl {
-    fn new(gain: f32, is_muted: bool) -> Self {
+    fn new(gain: f32, is_muted: bool, has_signal: bool) -> Self {
         Self {
             gain: AtomicU32::new(gain.to_bits()),
             is_muted: AtomicBool::new(is_muted),
             peak: AtomicU32::new(0.0_f32.to_bits()),
-            has_signal: AtomicBool::new(false),
+            has_signal: AtomicBool::new(has_signal),
         }
     }
 
@@ -208,15 +321,29 @@ struct EngineState {
     /// list, and a peak batch that skipped it would disagree with that list — which the contract
     /// forbids, because the UI pairs the two by key.
     keys: Vec<String>,
-    /// Survives a rebuild. An app that is muted while another app opens or quits must come back
-    /// muted rather than at full volume, and that rebuild is not something the user did.
-    remembered: Vec<(String, f32, bool)>,
+    /// Survives a rebuild: gain, mute, and whether this app has ever been heard.
+    ///
+    /// An app that is muted while another app opens or quits must come back muted rather than at
+    /// full volume, and that rebuild is not something the user did. Having been heard is
+    /// remembered for the same reason and one more: the engine rebuilds itself while probing for
+    /// the capture permission, and a forgotten signal would put every silent app back in the list
+    /// each time it did.
+    remembered: Vec<(String, f32, bool, bool)>,
     /// The processes behind `keys`, kept so a promotion can rebuild the taps without a second
     /// enumeration. Promotion is triggered from the meter tick, which has no process list.
     processes: Vec<ProcessSession>,
-    /// When the current tap set started listening. Read only to decide how long silence has
-    /// gone on for, which is the difference between "nothing is playing" and "we cannot hear".
-    listening_since: Option<Instant>,
+    /// How the current tap set was built. Read to tell a set that is already muted from one that
+    /// still has to be rebuilt before it can carry anyone's volume.
+    mute: Option<TapMute>,
+    /// When this tap set was created. Drives how often capture is re-attempted, and is reset by
+    /// every rebuild, which is exactly what a retry cadence needs.
+    probed_at: Option<Instant>,
+    /// When the taps last started listening without having heard anything since.
+    ///
+    /// Deliberately survives a re-probe. Tying the verdict to `probed_at` instead would reset the
+    /// clock every retry, and the panel would swing between the permission notice and a list of
+    /// dead rows for as long as the permission stayed unresolved.
+    silent_since: Option<Instant>,
 }
 
 /// The engine as the backend sees it.
@@ -257,7 +384,7 @@ impl TapEngine {
             return Ok(());
         }
 
-        state.build(processes, self.tap_mute())
+        state.rebuild(processes, self.tap_mute())
     }
 
     /// Takes the apps over once one of them has been heard through a passthrough tap.
@@ -275,15 +402,27 @@ impl TapEngine {
             return Ok(());
         }
 
-        self.has_proven_capture.store(true, Ordering::Relaxed);
-
         let processes = state.processes.clone();
 
-        state.remember();
-        state.teardown();
-        state.keys = processes.iter().map(ProcessSession::identifier).collect();
+        // Proven only once the muted set is actually running. Setting the flag first and building
+        // afterwards left the engine claiming capture it no longer had if the build failed: the
+        // retry below skips a proven engine, so nothing ever rebuilt, and every row kept a slider
+        // that moved nothing.
+        diagnose!("heard audio, taking the apps over");
 
-        state.build(&processes, TapMute::Muted)
+        if let Err(error) = state.rebuild(&processes, TapMute::Muted) {
+            // Straight back to listening. The apps are already playing themselves in this mode,
+            // so the failure costs control rather than sound.
+            let _ = state.rebuild(&processes, TapMute::Passthrough);
+
+            return Err(error);
+        }
+
+        self.has_proven_capture.store(true, Ordering::Relaxed);
+        state.silent_since = None;
+        record_capture_proof();
+
+        Ok(())
     }
 
     /// Whether the taps have been listening in silence for long enough to blame the permission.
@@ -294,7 +433,9 @@ impl TapEngine {
     /// whose apps are merely paused sees the notice too, which is why it says what it observed
     /// rather than accusing the permission outright.
     pub fn is_capture_withheld(&self) -> bool {
-        if self.has_proven_capture.load(Ordering::Relaxed) {
+        // Known-granted machines are never accused. Once capture has worked here, silence means
+        // nothing is playing, which is a different empty state with a different answer.
+        if self.has_proven_capture.load(Ordering::Relaxed) || capture_ever_proven() {
             return false;
         }
 
@@ -305,8 +446,79 @@ impl TapEngine {
         }
 
         state
-            .listening_since
+            .silent_since
             .is_some_and(|since| since.elapsed() >= SILENCE_VERDICT)
+    }
+
+    /// Hands the apps back when a set that started muted on the marker's word hears nothing.
+    ///
+    /// The marker records that capture worked once, not that it works now. If the permission has
+    /// been revoked since, those muted taps are silencing apps Somul can no longer hear, so the
+    /// marker is dropped and the set goes back to passthrough - which also lets the panel offer
+    /// the permission again instead of insisting nothing is playing.
+    pub fn demote_if_deaf(&self) -> Result<(), AudioError> {
+        if self.has_proven_capture.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let mut state = self.lock();
+
+        if state.mute != Some(TapMute::Muted) || state.slots.is_empty() {
+            return Ok(());
+        }
+
+        let is_deaf = state
+            .silent_since
+            .is_some_and(|since| since.elapsed() >= SILENCE_VERDICT);
+
+        if !is_deaf {
+            return Ok(());
+        }
+
+        diagnose!("muted taps heard nothing, handing the apps back");
+        forget_capture_proof();
+
+        let processes = state.processes.clone();
+
+        state.rebuild(&processes, TapMute::Passthrough)
+    }
+
+    /// Builds the taps again so a permission granted since they were created can take effect.
+    ///
+    /// macOS decides whether a tap may capture when the tap is created. A tap that was refused
+    /// stays silent for its whole life, so a user who grants the permission while Somul is
+    /// running would otherwise see nothing change until they quit and reopen it.
+    ///
+    /// Free while probing: passthrough taps are not carrying anyone's audio, so tearing them down
+    /// and building them again is inaudible. It would not be free once mixing, which is why this
+    /// stops the moment capture is proven.
+    pub fn reprobe_capture(&self) -> Result<(), AudioError> {
+        if self.has_proven_capture.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let mut state = self.lock();
+
+        // Only once silence has gone on long enough to be a verdict rather than a quiet moment.
+        // Retrying from the first tick would rebuild the taps under every app that simply had not
+        // played yet, and would do it in the seconds when the panel has only just opened.
+        let is_withheld = state
+            .silent_since
+            .is_some_and(|since| since.elapsed() >= SILENCE_VERDICT);
+
+        let is_due = state
+            .probed_at
+            .is_some_and(|at| at.elapsed() >= CAPTURE_RETRY);
+
+        if !is_withheld || !is_due || state.processes.is_empty() {
+            return Ok(());
+        }
+
+        let processes = state.processes.clone();
+
+        diagnose!("still silent, asking macOS for capture again");
+
+        state.rebuild(&processes, TapMute::Passthrough)
     }
 
     /// Whether any tap has ever delivered audio.
@@ -315,16 +527,36 @@ impl TapEngine {
     /// hiding all of them: until something has been heard there is no evidence to hide anything
     /// on, and an empty panel would be a worse answer than a slightly generous one.
     pub fn has_heard_anything(&self) -> bool {
-        self.lock().slots.iter().any(|slot| slot.control.has_signal())
+        // On a machine where capture is known to work, an app that has not been heard is simply
+        // not playing - a text editor holding an output stream open, which is not a mixer row.
+        // The evidence is good enough to hide it without waiting to hear something else first.
+        capture_ever_proven() || self.lock().slots.iter().any(|slot| slot.control.has_signal())
     }
 
-    /// Whether this key belongs in the panel: heard at least once, or never tapped at all.
+    /// Whether this key belongs in the panel: it has been heard.
     ///
-    /// An untapped app is kept because nothing has listened to it, so there is no evidence to
-    /// hide it on. It is also exactly the row that carries the "no control" chip.
+    /// Being heard is the only thing that separates an app playing audio from a text editor that
+    /// opened an output stream at launch and never used it. `IsRunningOutput` reports both as
+    /// running output, and it is telling the truth - the stream really is open.
+    ///
+    /// An app that could not be tapped is judged the same way, which means it is hidden rather
+    /// than listed as uncontrollable. It is a real trade: an app playing audio that refused the
+    /// tap disappears from the panel instead of appearing with a dead slider. The panel cannot
+    /// control it either way, and a row that cannot be controlled is not worth the confusion of
+    /// listing every app that merely holds a speaker open.
+    ///
+    /// Only consulted once something has been heard at all - see `has_heard_anything`.
     pub fn is_audible(&self, key: &str) -> bool {
         self.control(key)
-            .map_or(true, |control| control.has_signal())
+            .is_some_and(|control| control.has_signal())
+    }
+
+    /// Whether the last sync saw any app holding audio open, tapped or not.
+    ///
+    /// Read instead of a fresh enumeration when the answer only has to be as current as the last
+    /// sync, which the meter loop performs every tick anyway.
+    pub fn has_processes(&self) -> bool {
+        !self.lock().keys.is_empty()
     }
 
     /// Whether any app is tapped at all, mixing or still listening.
@@ -340,11 +572,17 @@ impl TapEngine {
     /// A passthrough tap carries no volume, so a row backed by one is reported as uncontrollable
     /// rather than given a slider that moves nothing.
     pub fn is_mixing(&self) -> bool {
-        self.has_proven_capture.load(Ordering::Relaxed)
+        self.has_proven_capture.load(Ordering::Relaxed) || capture_ever_proven()
     }
 
+    /// Muted straight away on a Mac where capture has already been proven.
+    ///
+    /// Probing first is only worth its cost while it is still unknown whether macOS will allow
+    /// capture at all. Paying it on every launch after that means every app spends the seconds
+    /// before its first sound in a row that says it cannot be controlled - which is exactly what
+    /// the user sees as a delay when they press play.
     fn tap_mute(&self) -> TapMute {
-        if self.has_proven_capture.load(Ordering::Relaxed) {
+        if self.is_mixing() {
             TapMute::Muted
         } else {
             TapMute::Passthrough
@@ -419,12 +657,13 @@ impl EngineState {
                 slot.key.clone(),
                 slot.control.gain(),
                 slot.control.is_muted(),
+                slot.control.has_signal(),
             );
 
             match self
                 .remembered
                 .iter_mut()
-                .find(|(key, _, _)| *key == entry.0)
+                .find(|(key, _, _, _)| *key == entry.0)
             {
                 Some(existing) => *existing = entry,
                 None => self.remembered.push(entry),
@@ -432,12 +671,12 @@ impl EngineState {
         }
     }
 
-    fn recall(&self, key: &str) -> (f32, bool) {
+    fn recall(&self, key: &str) -> (f32, bool, bool) {
         self.remembered
             .iter()
-            .find(|(remembered, _, _)| remembered == key)
-            .map(|(_, gain, is_muted)| (*gain, *is_muted))
-            .unwrap_or((1.0, false))
+            .find(|(remembered, _, _, _)| remembered == key)
+            .map(|(_, gain, is_muted, has_signal)| (*gain, *is_muted, *has_signal))
+            .unwrap_or((1.0, false, false))
     }
 
     /// Destroys the aggregate first, then the taps.
@@ -450,6 +689,26 @@ impl EngineState {
         self.keys.clear();
     }
 
+    /// Replaces the tap set, leaving nothing behind if it cannot.
+    ///
+    /// The failure path is the whole point. `keys` is what tells `sync` the set is already
+    /// current, so a build that failed while leaving them set meant every later sync saw its work
+    /// as done and returned early — one failure and the engine never tapped anything again.
+    fn rebuild(&mut self, processes: &[ProcessSession], mute: TapMute) -> Result<(), AudioError> {
+        self.remember();
+        self.teardown();
+        self.keys = processes.iter().map(ProcessSession::identifier).collect();
+
+        let result = self.build(processes, mute);
+
+        if let Err(error) = &result {
+            diagnose!("build as {mute:?} failed, released every tap: {error:?}");
+            self.keys.clear();
+        }
+
+        result
+    }
+
     fn build(&mut self, processes: &[ProcessSession], mute: TapMute) -> Result<(), AudioError> {
         let output = super::default_output_device()?;
         let output_uid = device_uid(output)?;
@@ -458,7 +717,7 @@ impl EngineState {
 
         for process in processes {
             let key = process.identifier();
-            let (gain, is_muted) = self.recall(&key);
+            let (gain, is_muted, has_signal) = self.recall(&key);
 
             // One app failing to tap must not cost the others their mixer. A game that refuses
             // the tap simply keeps playing at its own level.
@@ -468,7 +727,7 @@ impl EngineState {
 
             slots.push(TapSlot {
                 key,
-                control: Arc::new(SessionControl::new(gain, is_muted)),
+                control: Arc::new(SessionControl::new(gain, is_muted, has_signal)),
                 _tap: tap,
             });
         }
@@ -523,7 +782,23 @@ impl EngineState {
         check(status, "starting the mixer")?;
 
         aggregate.is_running = true;
-        self.listening_since = Some(Instant::now());
+
+        diagnose!(
+            "built {} tap(s) as {:?} for [{}]",
+            slots.len(),
+            mute,
+            slots
+                .iter()
+                .map(|slot| slot.key.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+
+        let now = Instant::now();
+
+        self.mute = Some(mute);
+        self.probed_at = Some(now);
+        self.silent_since = self.silent_since.or(Some(now));
 
         // Nothing below this point is optional. Every tap above muted its app at the hardware, so
         // if the mix is not actually running the user has lost that audio entirely, with no way
@@ -876,7 +1151,7 @@ mod tests {
 
     #[test]
     fn a_fresh_control_is_unity_and_unmuted() {
-        let control = SessionControl::new(1.0, false);
+        let control = SessionControl::new(1.0, false, false);
 
         assert_eq!(control.gain(), 1.0);
         assert!(!control.is_muted());
@@ -885,7 +1160,7 @@ mod tests {
     /// A quiet cycle after a loud one must not erase the loud one before the UI has read it.
     #[test]
     fn holds_the_loudest_level_between_two_reads() {
-        let control = SessionControl::new(1.0, false);
+        let control = SessionControl::new(1.0, false, false);
 
         control.observe(0.6);
         control.observe(0.1);
@@ -897,7 +1172,7 @@ mod tests {
     /// of holding its last level on screen forever.
     #[test]
     fn reading_a_peak_resets_it() {
-        let control = SessionControl::new(1.0, false);
+        let control = SessionControl::new(1.0, false, false);
 
         control.peak.store(0.8_f32.to_bits(), Ordering::Relaxed);
 
@@ -907,7 +1182,7 @@ mod tests {
 
     #[test]
     fn gain_and_mute_round_trip_through_the_atomics() {
-        let control = SessionControl::new(1.0, false);
+        let control = SessionControl::new(1.0, false, false);
 
         control.set_gain(0.25);
         control.set_muted(true);
@@ -964,7 +1239,7 @@ mod tests {
     }
 
     fn control(gain: f32, is_muted: bool) -> Arc<SessionControl> {
-        Arc::new(SessionControl::new(gain, is_muted))
+        Arc::new(SessionControl::new(gain, is_muted, false))
     }
 
     #[test]
@@ -1086,9 +1361,9 @@ mod tests {
     fn remembers_gain_and_mute_across_a_rebuild() {
         let mut state = EngineState::default();
 
-        state.remembered.push(("macos:app:probe".to_owned(), 0.3, true));
+        state.remembered.push(("macos:app:probe".to_owned(), 0.3, true, false));
 
-        assert_eq!(state.recall("macos:app:probe"), (0.3, true));
-        assert_eq!(state.recall("macos:app:unseen"), (1.0, false));
+        assert_eq!(state.recall("macos:app:probe"), (0.3, true, false));
+        assert_eq!(state.recall("macos:app:unseen"), (1.0, false, false));
     }
 }

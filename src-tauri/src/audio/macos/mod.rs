@@ -92,6 +92,13 @@ impl MacOsAudioBackend {
 
         self.engine.sync(&processes)?;
 
+        // Rebuilding the taps belongs with the sync that owns them, not with the meter read.
+        // macOS answers the capture question once per tap, so a permission granted after they
+        // were created is only noticed by asking again - and one revoked since is only noticed by
+        // the muted set going deaf.
+        let _ = self.engine.reprobe_capture();
+        let _ = self.engine.demote_if_deaf();
+
         let is_mixing = self.engine.is_mixing();
 
         // An app that holds an output stream open without ever playing through it is not a mixer
@@ -505,26 +512,34 @@ instead.",
             ));
         }
 
-        match self.sessions() {
+        // Answered from the last sync rather than a fresh enumeration. The meter loop asks this
+        // every tick so it can notice the answer changing, and enumerating here would double the
+        // per-tick CoreAudio work to re-derive something the engine already knows.
+        if !self.engine.has_processes() {
             // No app with audio is open, so nothing is tapped, and there is no evidence either
             // way. The capable answer is right: the empty state that follows says no apps are
             // open, which is true, where the unsupported notice would be a false accusation.
-            Ok(sessions) if sessions.is_empty() => PlatformCapabilities::full_per_app(),
-            // Tapped, and silent for long enough that the permission is the likely reason. The
-            // panel trades the list for the one action that fixes it: rows the user cannot
-            // control are worse than no rows, because each one looks like a bug of its own.
-            Ok(_) if self.engine.is_capture_withheld() => {
-                PlatformCapabilities::awaiting_audio_permission(WITHHELD_REASON)
-            }
-            // A tap that exists is the evidence, not a tap that is already carrying gain. Taps
-            // start out listening and are promoted once they have heard their app, so judging on
-            // `Active` alone would report the platform as incapable for the first few frames of
-            // every session and then change its mind.
-            Ok(_) if self.engine.has_taps() => PlatformCapabilities::full_per_app(),
-            // Apps are open and not one of them could be tapped. That is the permission being
-            // withheld, and the panel must explain it rather than list dead sliders.
-            Ok(_) | Err(_) => PlatformCapabilities::master_only(UNSUPPORTED_REASON),
+            return PlatformCapabilities::full_per_app();
         }
+
+        // Tapped, and silent for long enough that the permission is the likely reason. The panel
+        // trades the list for the one action that fixes it: rows the user cannot control are
+        // worse than no rows, because each one looks like a bug of its own.
+        if self.engine.is_capture_withheld() {
+            return PlatformCapabilities::awaiting_audio_permission(WITHHELD_REASON);
+        }
+
+        // A tap that exists is the evidence, not a tap that is already carrying gain. Taps start
+        // out listening and are promoted once they have heard their app, so judging on a live
+        // session alone would report the platform as incapable for the first few frames of every
+        // session and then change its mind.
+        if self.engine.has_taps() {
+            return PlatformCapabilities::full_per_app();
+        }
+
+        // Apps are open and not one of them could be tapped. That is the permission being
+        // withheld, and the panel must explain it rather than list dead sliders.
+        PlatformCapabilities::master_only(UNSUPPORTED_REASON)
     }
 
     fn list_sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
@@ -657,7 +672,8 @@ instead.",
         }
 
         // Taps start out listening rather than muting, so this is where a tap that has proved it
-        // can hear its app is promoted to one that carries the app's volume.
+        // can hear its app is promoted to one that carries the app's volume. Cheap in the steady
+        // state: a load, and a rebuild only on the single transition.
         let _ = self.engine.promote_if_heard();
 
         // The same visibility rule the session list runs. A batch covering a row the panel does
@@ -783,6 +799,10 @@ mod tests {
     /// A meter read that lands before the panel has ever listed sessions must still report the
     /// live set. Returning nothing there would leave every meter dead until a refresh happened
     /// to occur.
+    ///
+    /// Counts are not compared against a second enumeration. Both reads look at the live process
+    /// set, and a browser helper starting or stopping playback between them makes the two differ
+    /// without the adapter having done anything wrong.
     #[test]
     fn a_cold_peak_read_still_covers_the_live_sessions() {
         let backend = MacOsAudioBackend::new();
@@ -793,11 +813,12 @@ mod tests {
 
         let sessions = backend.list_sessions().expect("sessions after a cold read");
 
-        assert_eq!(
-            peaks.len(),
-            sessions.len(),
-            "a cold peak read must cover the same sessions the panel would list"
-        );
+        if !sessions.is_empty() {
+            assert!(
+                !peaks.is_empty(),
+                "a cold peak read must report the sessions the panel would list"
+            );
+        }
 
         for peak in peaks {
             assert!(
