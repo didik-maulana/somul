@@ -40,6 +40,32 @@ extern "C" {
 /// `CATapMuteBehavior.CATapMuted` — captured by the tap, and not sent to the hardware.
 const CA_TAP_MUTED: isize = 1;
 
+/// `CATapMuteBehavior.CATapUnmuted` — captured *and* still sent to the hardware.
+const CA_TAP_UNMUTED: isize = 0;
+
+/// What a tap does to the app it captures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TapMute {
+    /// The app is silenced at the hardware and is audible only through our mix.
+    ///
+    /// The only mode that can implement per-app volume, and the only one that can take an app's
+    /// audio away: an unauthorized tap is silent, so this mutes an app we cannot hear.
+    Muted,
+    /// The app keeps playing through the hardware and we only listen.
+    ///
+    /// Costs nothing if capture turns out not to work, which is why every tap starts here.
+    Passthrough,
+}
+
+impl TapMute {
+    fn behavior(self) -> isize {
+        match self {
+            Self::Muted => CA_TAP_MUTED,
+            Self::Passthrough => CA_TAP_UNMUTED,
+        }
+    }
+}
+
 /// A live tap on one process, owned by this client.
 ///
 /// The `Drop` impl is the safety property: a leaked tap leaves an app permanently silenced with
@@ -55,7 +81,7 @@ pub(super) struct ProcessTap {
 const REQUIRED_CHANNELS: u32 = 2;
 
 impl ProcessTap {
-    /// Taps every process in `processes` as one stereo mixdown, muted at the hardware.
+    /// Taps every process in `processes` as one stereo mixdown.
     ///
     /// A list rather than a single object because an app is routinely several audio processes —
     /// a browser plays through a GPU helper and a media helper — and the user expects one slider
@@ -64,14 +90,18 @@ impl ProcessTap {
     /// Stereo mixdown rather than the native layout: the mixer renders every app into one stereo
     /// bus, and asking CoreAudio to fold a 5.1 game down is both cheaper and more correct than
     /// folding it here.
-    pub fn muted_stereo(processes: &[AudioObjectID], label: &str) -> Result<Self, AudioError> {
+    pub fn stereo(
+        processes: &[AudioObjectID],
+        label: &str,
+        mute: TapMute,
+    ) -> Result<Self, AudioError> {
         if processes.is_empty() {
             return Err(AudioError::BackendFailure(
                 "a tap needs at least one process to capture".to_owned(),
             ));
         }
 
-        let description = build_description(processes, label)?;
+        let description = build_description(processes, label, mute)?;
 
         let mut id: AudioObjectID = 0;
         // SAFETY: `description` is a live `CATapDescription` for the duration of the call, and
@@ -168,10 +198,11 @@ impl Drop for ProcessTap {
     }
 }
 
-/// Builds the `CATapDescription` for a single muted, private process tap.
+/// Builds the `CATapDescription` for a single private process tap.
 fn build_description(
     processes: &[AudioObjectID],
     label: &str,
+    mute: TapMute,
 ) -> Result<Retained<AnyObject>, AudioError> {
     let numbers: Vec<Retained<NSNumber>> = processes
         .iter()
@@ -195,7 +226,7 @@ fn build_description(
         };
 
         let _: () = msg_send![&*description, setName: &*name];
-        let _: () = msg_send![&*description, setMuteBehavior: CA_TAP_MUTED];
+        let _: () = msg_send![&*description, setMuteBehavior: mute.behavior()];
         // Private keeps the tap out of every other client's device list. A public tap would show
         // up in other apps' input pickers as a phantom recording device.
         let _: () = msg_send![&*description, setPrivate: true];
@@ -240,7 +271,7 @@ mod tests {
     /// back a tap that captures nothing.
     #[test]
     fn refuses_a_process_that_does_not_exist() {
-        let result = ProcessTap::muted_stereo(&[0], "Somul probe");
+        let result = ProcessTap::stereo(&[0], "Somul probe", TapMute::Muted);
 
         assert!(
             result.is_err(),
@@ -252,6 +283,6 @@ mod tests {
     /// the user as a row whose slider does nothing.
     #[test]
     fn refuses_an_empty_process_list() {
-        assert!(ProcessTap::muted_stereo(&[], "Somul probe").is_err());
+        assert!(ProcessTap::stereo(&[], "Somul probe", TapMute::Muted).is_err());
     }
 }

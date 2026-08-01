@@ -32,3 +32,30 @@ pub fn set_panel_appearance<R: Runtime>(window: Window<R>, is_dark: bool) {
         let _ = is_dark;
     }
 }
+
+/// Opens the Privacy & Security pane where audio capture is granted.
+///
+/// The panel offers this instead of printing a path for the user to walk: the permission is the
+/// one thing standing between a listed app and a working slider, and a notice with no action is
+/// how a user concludes the app is broken.
+///
+/// Anchored at Privacy rather than a named service. macOS moves audio capture between anchors
+/// across releases, and a stale anchor opens nothing at all, where the root pane always opens.
+#[tauri::command]
+pub fn open_audio_permission_settings() -> Result<(), crate::audio::AudioError> {
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        const PRIVACY_PANE: &str = "x-apple.systempreferences:com.apple.preference.security?Privacy";
+
+        std::process::Command::new("open")
+            .arg(PRIVACY_PANE)
+            .spawn()
+            .map_err(|error| {
+                crate::audio::AudioError::BackendFailure(format!(
+                    "could not open System Settings: {error}"
+                ))
+            })?;
+    }
+
+    Ok(())
+}

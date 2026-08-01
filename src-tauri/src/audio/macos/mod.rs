@@ -56,6 +56,12 @@ pub const UNSUPPORTED_REASON: &str = "Somul could not open the per-app audio tap
 for individual app volume. Check that Somul is allowed to capture audio in System Settings › \
 Privacy & Security, then reopen the panel.";
 
+/// Shown when the taps are up and have heard nothing at all.
+///
+/// Describes what was observed rather than asserting a denial, because a user whose apps are
+/// merely paused lands here too, and telling them their permission is broken would be a lie.
+const WITHHELD_REASON: &str = "Somul has not heard any app audio yet. macOS only lets an app capture other apps' audio once you allow it, and per-app volume needs that access.";
+
 const PER_APP_ROUTING_REASON: &str = "Per-app output routing is not available on macOS in v1.";
 
 /// The macOS that introduced `AudioHardwareCreateProcessTap`. Below it there is no per-app path
@@ -86,8 +92,16 @@ impl MacOsAudioBackend {
 
         self.engine.sync(&processes)?;
 
+        let is_mixing = self.engine.is_mixing();
+
+        // An app that holds an output stream open without ever playing through it is not a mixer
+        // row: `IsRunningOutput` is true for anything with an open stream, which is how a dev tool
+        // that opened an audio context at launch acquired a slider of its own.
+        let has_heard_anything = self.engine.has_heard_anything();
+
         Ok(processes
             .iter()
+            .filter(|found| !has_heard_anything || self.engine.is_audible(&found.identifier()))
             .map(|found| {
                 let key = found.identifier();
                 let control = self.engine.control(&key);
@@ -103,8 +117,10 @@ impl MacOsAudioBackend {
                     is_muted: control.as_ref().is_some_and(|control| control.is_muted()),
                     output_device_id: None,
                     // An open app that we failed to tap is present but not controllable, which is
-                    // exactly what `Inactive` means.
-                    state: if control.is_some() {
+                    // exactly what `Inactive` means. So is one whose tap is still passthrough:
+                    // the tap carries no gain until it is muted, and a slider over it would move
+                    // nothing.
+                    state: if control.is_some() && is_mixing {
                         SessionState::Active
                     } else {
                         SessionState::Inactive
@@ -494,9 +510,17 @@ instead.",
             // way. The capable answer is right: the empty state that follows says no apps are
             // open, which is true, where the unsupported notice would be a false accusation.
             Ok(sessions) if sessions.is_empty() => PlatformCapabilities::full_per_app(),
-            Ok(sessions) if sessions.iter().any(|s| s.state == SessionState::Active) => {
-                PlatformCapabilities::full_per_app()
+            // Tapped, and silent for long enough that the permission is the likely reason. The
+            // panel trades the list for the one action that fixes it: rows the user cannot
+            // control are worse than no rows, because each one looks like a bug of its own.
+            Ok(_) if self.engine.is_capture_withheld() => {
+                PlatformCapabilities::awaiting_audio_permission(WITHHELD_REASON)
             }
+            // A tap that exists is the evidence, not a tap that is already carrying gain. Taps
+            // start out listening and are promoted once they have heard their app, so judging on
+            // `Active` alone would report the platform as incapable for the first few frames of
+            // every session and then change its mind.
+            Ok(_) if self.engine.has_taps() => PlatformCapabilities::full_per_app(),
             // Apps are open and not one of them could be tapped. That is the permission being
             // withheld, and the panel must explain it rather than list dead sliders.
             Ok(_) | Err(_) => PlatformCapabilities::master_only(UNSUPPORTED_REASON),
@@ -632,10 +656,19 @@ instead.",
             let _ = self.sessions();
         }
 
+        // Taps start out listening rather than muting, so this is where a tap that has proved it
+        // can hear its app is promoted to one that carries the app's volume.
+        let _ = self.engine.promote_if_heard();
+
+        // The same visibility rule the session list runs. A batch covering a row the panel does
+        // not show would disagree with the list, and the contract pairs the two by key.
+        let has_heard_anything = self.engine.has_heard_anything();
+
         Ok(self
             .engine
             .peaks()
             .into_iter()
+            .filter(|(key, _)| !has_heard_anything || self.engine.is_audible(key))
             .filter_map(|(key, peak)| {
                 Some(SessionPeak {
                     session_id: SessionId::from_backend_identifier(&key).ok()?,

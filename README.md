@@ -51,6 +51,26 @@ through process taps — the approach used by [SonicFlow](https://github.com/alt
 path and require a stable code-signing identity, which is what made macOS the hard platform to
 land first and the sensible one to prove the design on.
 
+### Audio-recording permission
+
+Per-app volume runs on Core Audio process taps, and a tap is audio capture: macOS gates it behind
+the audio-recording TCC permission. An **unauthorized tap does not fail**. It is created, it
+reports channels, and it delivers digital silence, while still muting the app it captured. Somul
+therefore starts every tap in passthrough and only takes an app over once it has actually heard
+it, so a missing permission costs per-app control rather than the audio itself.
+
+Granting the permission needs a stable code-signing identity. An ad-hoc signed build (what
+`cargo build` and an unconfigured `tauri build` produce) changes its code hash on every rebuild,
+so TCC cannot keep a grant attached to it. Build with a real identity:
+
+```sh
+APPLE_SIGNING_IDENTITY="Apple Development: you@example.com (TEAMID)" npm run tauri build
+```
+
+Then allow Somul under System Settings, Privacy and Security, Audio Recording. Until that is in
+place the panel lists every app holding an open output stream, playing or not, because without
+capture there is no way to tell the two apart.
+
 Re-arming a platform means three edits: add its runner back to the CI matrix (with the Linux
 system-dependency step alongside it), widen `bundle.targets` in `src-tauri/tauri.conf.json`, and
 replace its `compile_error!` in `src-tauri/src/lib.rs` with a real adapter.

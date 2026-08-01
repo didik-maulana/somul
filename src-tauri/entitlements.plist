@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Process taps are audio capture, and the hardened runtime blocks capture without this
+  entitlement. Pairs with NSAudioCaptureUsageDescription in Info.plist: the string is what the
+  system shows in the prompt, this is what lets the prompt happen at all.
+
+  Signing identity is deliberately not set here. It belongs to whoever is building, and Tauri
+  reads it from APPLE_SIGNING_IDENTITY. See README for what an ad-hoc build cannot do.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
+  </dict>
+</plist>

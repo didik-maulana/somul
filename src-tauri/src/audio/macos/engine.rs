@@ -15,8 +15,10 @@
 //!   "no audio".
 
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use coreaudio_sys::{
     kAudioDevicePropertyDeviceUID, kAudioObjectPropertyElementMain,
@@ -30,7 +32,7 @@ use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString};
 
 use super::process::ProcessSession;
 use super::property::{address, check, read_property, take_cf_string};
-use super::tap::ProcessTap;
+use super::tap::{ProcessTap, TapMute};
 use crate::audio::AudioError;
 
 /// Every tap is created as a stereo mixdown, which is what makes the channel arithmetic in the
@@ -54,7 +56,29 @@ pub(super) struct SessionControl {
     /// `f32` bits. Pre-gain, so the meter shows what the app is producing rather than what the
     /// user has turned it down to.
     peak: AtomicU32,
+    /// Whether this app has ever put a sample above [`SIGNAL_FLOOR`] through the tap.
+    ///
+    /// Sticky. `IsRunningOutput` is true for any process holding an open output stream, playing
+    /// or not, which is how a dev tool that opened an audio context at launch and never used it
+    /// ended up with a slider in the mixer. Once an app has been heard it keeps its row, so a
+    /// paused player does not vanish between tracks.
+    has_signal: AtomicBool,
 }
+
+/// Below this a tap is reporting its own noise floor, not audio. -80 dBFS.
+const SIGNAL_FLOOR: f32 = 0.0001;
+
+/// How long the mix is given to render its first tapped cycle before the taps are released.
+///
+/// Generous by realtime standards and invisible next to opening a panel. It is paid once per
+/// rebuild, on the meter thread, and only ever in full when the mix has actually failed.
+const MIX_START_TIMEOUT: Duration = Duration::from_millis(400);
+const MIX_START_POLL: Duration = Duration::from_millis(5);
+
+/// How long a tap set may hear nothing at all before the panel offers the permission as the
+/// explanation. Long enough to sit through a gap between tracks, short enough to answer a user
+/// who has just opened the panel and is wondering why nothing works.
+const SILENCE_VERDICT: Duration = Duration::from_secs(6);
 
 impl SessionControl {
     fn new(gain: f32, is_muted: bool) -> Self {
@@ -62,7 +86,13 @@ impl SessionControl {
             gain: AtomicU32::new(gain.to_bits()),
             is_muted: AtomicBool::new(is_muted),
             peak: AtomicU32::new(0.0_f32.to_bits()),
+            has_signal: AtomicBool::new(false),
         }
+    }
+
+    /// Whether this app has produced audible output since its tap was created.
+    pub fn has_signal(&self) -> bool {
+        self.has_signal.load(Ordering::Relaxed)
     }
 
     pub fn gain(&self) -> f32 {
@@ -95,6 +125,10 @@ impl SessionControl {
         if f32::from_bits(self.peak.load(Ordering::Relaxed)) < peak {
             self.peak.store(peak.to_bits(), Ordering::Relaxed);
         }
+
+        if peak > SIGNAL_FLOOR && !self.has_signal.load(Ordering::Relaxed) {
+            self.has_signal.store(true, Ordering::Relaxed);
+        }
     }
 }
 
@@ -112,6 +146,18 @@ struct TapSlot {
 /// synchronization to read it. Slot `i` owns input channels `[2i, 2i + 1]`.
 struct RenderState {
     controls: Vec<Arc<SessionControl>>,
+    /// True while the taps are still passthrough and the apps are playing themselves.
+    ///
+    /// The callback then observes levels and writes silence. Summing the taps as well would put
+    /// a second copy of every app through the device on top of the one the hardware is already
+    /// playing.
+    is_probing: bool,
+    /// Render cycles that arrived with tap channels attached.
+    ///
+    /// A tap mutes its app at the hardware, so the app is audible only through this callback. If
+    /// the callback never runs, or runs with no tap input, the user's audio is simply gone until
+    /// Somul exits. [`AggregateStartup`] reads this to decide whether the mix is really running.
+    tapped_cycles: AtomicU64,
 }
 
 /// A private aggregate device holding the real output plus every live tap.
@@ -165,6 +211,12 @@ struct EngineState {
     /// Survives a rebuild. An app that is muted while another app opens or quits must come back
     /// muted rather than at full volume, and that rebuild is not something the user did.
     remembered: Vec<(String, f32, bool)>,
+    /// The processes behind `keys`, kept so a promotion can rebuild the taps without a second
+    /// enumeration. Promotion is triggered from the meter tick, which has no process list.
+    processes: Vec<ProcessSession>,
+    /// When the current tap set started listening. Read only to decide how long silence has
+    /// gone on for, which is the difference between "nothing is playing" and "we cannot hear".
+    listening_since: Option<Instant>,
 }
 
 /// The engine as the backend sees it.
@@ -172,6 +224,13 @@ struct EngineState {
 pub(super) struct TapEngine {
     state: Mutex<EngineState>,
     has_synced: AtomicBool,
+    /// Set once a tap has actually delivered audio.
+    ///
+    /// Until then every tap is [`TapMute::Passthrough`]. A tap that macOS has not authorised for
+    /// audio capture does not fail: it is created, it reports channels, and it delivers digital
+    /// silence — while still muting its app if it was asked to. Muting first and hoping is how
+    /// an unapproved install takes a user's audio away with no way back short of quitting.
+    has_proven_capture: AtomicBool,
 }
 
 impl TapEngine {
@@ -192,12 +251,104 @@ impl TapEngine {
         state.remember();
         state.teardown();
         state.keys = wanted;
+        state.processes = processes.to_vec();
 
         if processes.is_empty() {
             return Ok(());
         }
 
-        state.build(processes)
+        state.build(processes, self.tap_mute())
+    }
+
+    /// Takes the apps over once one of them has been heard through a passthrough tap.
+    ///
+    /// Cheap enough for the meter tick: a load, and a rebuild only on the single transition from
+    /// listening to mixing.
+    pub fn promote_if_heard(&self) -> Result<(), AudioError> {
+        if self.has_proven_capture.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        let mut state = self.lock();
+
+        if !state.slots.iter().any(|slot| slot.control.has_signal()) {
+            return Ok(());
+        }
+
+        self.has_proven_capture.store(true, Ordering::Relaxed);
+
+        let processes = state.processes.clone();
+
+        state.remember();
+        state.teardown();
+        state.keys = processes.iter().map(ProcessSession::identifier).collect();
+
+        state.build(&processes, TapMute::Muted)
+    }
+
+    /// Whether the taps have been listening in silence for long enough to blame the permission.
+    ///
+    /// An unauthorised tap is indistinguishable from a genuinely quiet app for as long as the app
+    /// stays quiet: both deliver zero. Time is the only thing that separates them, so the verdict
+    /// waits [`SILENCE_VERDICT`] and is withdrawn the instant a single sample arrives. A user
+    /// whose apps are merely paused sees the notice too, which is why it says what it observed
+    /// rather than accusing the permission outright.
+    pub fn is_capture_withheld(&self) -> bool {
+        if self.has_proven_capture.load(Ordering::Relaxed) {
+            return false;
+        }
+
+        let state = self.lock();
+
+        if state.slots.is_empty() {
+            return false;
+        }
+
+        state
+            .listening_since
+            .is_some_and(|since| since.elapsed() >= SILENCE_VERDICT)
+    }
+
+    /// Whether any tap has ever delivered audio.
+    ///
+    /// The panel hides apps that have never been heard, and this is the guard that keeps it from
+    /// hiding all of them: until something has been heard there is no evidence to hide anything
+    /// on, and an empty panel would be a worse answer than a slightly generous one.
+    pub fn has_heard_anything(&self) -> bool {
+        self.lock().slots.iter().any(|slot| slot.control.has_signal())
+    }
+
+    /// Whether this key belongs in the panel: heard at least once, or never tapped at all.
+    ///
+    /// An untapped app is kept because nothing has listened to it, so there is no evidence to
+    /// hide it on. It is also exactly the row that carries the "no control" chip.
+    pub fn is_audible(&self, key: &str) -> bool {
+        self.control(key)
+            .map_or(true, |control| control.has_signal())
+    }
+
+    /// Whether any app is tapped at all, mixing or still listening.
+    ///
+    /// This is the evidence for per-app volume being available on this machine. Whether a tap is
+    /// carrying gain yet is a separate question, and a slower one to answer.
+    pub fn has_taps(&self) -> bool {
+        !self.lock().slots.is_empty()
+    }
+
+    /// Whether the taps are mixing rather than listening.
+    ///
+    /// A passthrough tap carries no volume, so a row backed by one is reported as uncontrollable
+    /// rather than given a slider that moves nothing.
+    pub fn is_mixing(&self) -> bool {
+        self.has_proven_capture.load(Ordering::Relaxed)
+    }
+
+    fn tap_mute(&self) -> TapMute {
+        if self.has_proven_capture.load(Ordering::Relaxed) {
+            TapMute::Muted
+        } else {
+            TapMute::Passthrough
+        }
     }
 
     /// Whether the tap set has ever been brought in line with the running processes.
@@ -299,7 +450,7 @@ impl EngineState {
         self.keys.clear();
     }
 
-    fn build(&mut self, processes: &[ProcessSession]) -> Result<(), AudioError> {
+    fn build(&mut self, processes: &[ProcessSession], mute: TapMute) -> Result<(), AudioError> {
         let output = super::default_output_device()?;
         let output_uid = device_uid(output)?;
 
@@ -311,7 +462,7 @@ impl EngineState {
 
             // One app failing to tap must not cost the others their mixer. A game that refuses
             // the tap simply keeps playing at its own level.
-            let Ok(tap) = ProcessTap::muted_stereo(&process.objects, &process.display_name) else {
+            let Ok(tap) = ProcessTap::stereo(&process.objects, &process.display_name, mute) else {
                 continue;
             };
 
@@ -338,6 +489,8 @@ impl EngineState {
                 .iter()
                 .map(|slot| Arc::clone(&slot.control))
                 .collect(),
+            tapped_cycles: AtomicU64::new(0),
+            is_probing: mute == TapMute::Passthrough,
         });
 
         let mut aggregate = Aggregate {
@@ -370,12 +523,42 @@ impl EngineState {
         check(status, "starting the mixer")?;
 
         aggregate.is_running = true;
+        self.listening_since = Some(Instant::now());
+
+        // Nothing below this point is optional. Every tap above muted its app at the hardware, so
+        // if the mix is not actually running the user has lost that audio entirely, with no way
+        // back short of quitting Somul. Returning an error here drops `slots`, and dropping a
+        // `ProcessTap` hands its app straight back to the hardware.
+        wait_for_mix(&aggregate.render)?;
 
         self.aggregate = Some(aggregate);
         self.slots = slots;
 
         Ok(())
     }
+}
+
+/// Blocks until the mix has rendered a cycle with tap input, or gives up.
+///
+/// CoreAudio reports success from `AudioDeviceStart` before the first cycle has run, and several
+/// real failures show up only afterwards: an aggregate whose taps never auto-start feeds the
+/// callback zero input channels forever, and a device that refuses to run never calls it at all.
+/// Both are silent from the API's point of view and total from the user's.
+fn wait_for_mix(render: &RenderState) -> Result<(), AudioError> {
+    let deadline = Instant::now() + MIX_START_TIMEOUT;
+
+    while Instant::now() < deadline {
+        if render.tapped_cycles.load(Ordering::Relaxed) > 0 {
+            return Ok(());
+        }
+
+        thread::sleep(MIX_START_POLL);
+    }
+
+    Err(AudioError::BackendFailure(
+        "the mixer started but never rendered a tapped cycle, so the taps were released"
+            .to_owned(),
+    ))
 }
 
 /// Reads the device UID the aggregate description keys its sub-device on.
@@ -593,12 +776,26 @@ unsafe extern "C" fn render_callback(
 
     let inputs = unsafe { Channels::map(input) };
     let outputs = unsafe { Channels::map(output.cast_const()) };
+
+    if inputs.len > 0 {
+        state.tapped_cycles.fetch_add(1, Ordering::Relaxed);
+    }
+
     let output_frames = unsafe { Channels::frames(output.cast_const()) };
     let input_frames = unsafe { Channels::frames(input) };
 
     // SAFETY: both views were mapped from live buffer lists belonging to this IO cycle, and the
     // frame counts came from those same lists.
-    unsafe { mix(&inputs, &outputs, input_frames, output_frames, &state.controls) };
+    unsafe {
+        mix(
+            &inputs,
+            &outputs,
+            input_frames,
+            output_frames,
+            &state.controls,
+            state.is_probing,
+        )
+    };
 
     0
 }
@@ -616,6 +813,7 @@ unsafe fn mix(
     input_frames: usize,
     output_frames: usize,
     controls: &[Arc<SessionControl>],
+    is_probing: bool,
 ) {
     // Cleared over the *output's* length, not the shared minimum. A tap that delivers fewer
     // frames than the device asked for — the first cycles after a rebuild, or any underrun —
@@ -630,6 +828,7 @@ unsafe fn mix(
     }
 
     let frames = input_frames.min(output_frames);
+
 
     if outputs.len == 0 || frames == 0 {
         return;
@@ -659,8 +858,10 @@ unsafe fn mix(
                     peak = magnitude;
                 }
 
-                let target = unsafe { &mut *out_pointer.add(frame * out_stride) };
-                *target = (*target + sample * gain).clamp(-1.0, 1.0);
+                if !is_probing {
+                    let target = unsafe { &mut *out_pointer.add(frame * out_stride) };
+                    *target = (*target + sample * gain).clamp(-1.0, 1.0);
+                }
             }
         }
 
@@ -772,7 +973,7 @@ mod tests {
         let output = Buffers::new(2, 4, 0.0);
         let controls = vec![control(0.5, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| (*sample - 0.25).abs() < 1e-6));
     }
@@ -784,7 +985,7 @@ mod tests {
         let output = Buffers::new(2, 4, 0.0);
         let controls = vec![control(1.0, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| (*sample - 0.3).abs() < 1e-6));
     }
@@ -795,7 +996,7 @@ mod tests {
         let output = Buffers::new(2, 4, 0.0);
         let controls = vec![control(1.0, true)];
 
-        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| *sample == 0.0));
     }
@@ -807,7 +1008,7 @@ mod tests {
         let output = Buffers::new(2, 2, 0.0);
         let controls = vec![control(1.0, false), control(1.0, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| (*sample - 0.5).abs() < 1e-6));
     }
@@ -820,7 +1021,7 @@ mod tests {
         let output = Buffers::new(2, 2, 0.0);
         let controls = vec![control(1.0, false), control(1.0, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| *sample <= 1.0 && *sample >= -1.0));
         assert!(output.samples.iter().all(|sample| (*sample - 1.0).abs() < 1e-6));
@@ -834,7 +1035,7 @@ mod tests {
         let output = Buffers::new(2, 8, 0.77);
         let controls = vec![control(1.0, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 2, 8, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 2, 8, &controls, false) };
 
         let tail = &output.samples[2 * 2..];
 
@@ -851,7 +1052,7 @@ mod tests {
         let output = Buffers::new(2, 4, 0.61);
         let controls = vec![control(1.0, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 0, 4, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 0, 4, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| *sample == 0.0));
     }
@@ -864,7 +1065,7 @@ mod tests {
         let output = Buffers::new(2, 4, 0.0);
         let controls = vec![control(0.1, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls, false) };
 
         assert!((controls[0].take_peak() - 0.8).abs() < 1e-6);
     }
@@ -876,7 +1077,7 @@ mod tests {
         let output = Buffers::new(1, 2, 0.0);
         let controls = vec![control(1.0, false)];
 
-        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls) };
+        unsafe { mix(&input.view(), &output.view(), 2, 2, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| (*sample - 0.8).abs() < 1e-6));
     }
