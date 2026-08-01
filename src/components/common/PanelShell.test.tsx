@@ -79,6 +79,12 @@ describe('PanelHeader', () => {
     }
   });
 
+  it('renders the audio badge chip with signal indicator', () => {
+    render(<PanelHeader onSettingsOpen={noop} />);
+
+    expect(screen.getByText('Audio')).toBeInTheDocument();
+  });
+
   it('reports settings activation', async () => {
     const user = userEvent.setup();
     const handleSettingsOpen = vi.fn();

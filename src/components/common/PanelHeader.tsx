@@ -29,8 +29,18 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({ onSettingsOpen }) => (
       </span>
       <span
         data-tauri-drag-region
-        className="text-[10px] uppercase font-semibold text-primary px-1.5 py-0.5 rounded-full bg-primary/10 tracking-wider"
+        className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary shadow-[0_0_8px_rgba(52,92,180,0.12)] dark:border-blue-400/30 dark:bg-blue-500/20 dark:text-blue-300 dark:shadow-[0_0_10px_rgba(96,165,250,0.25)]"
       >
+        <span className="relative flex size-1.5 shrink-0" data-tauri-drag-region>
+          <span
+            data-tauri-drag-region
+            className="absolute inline-flex size-full animate-ping rounded-full bg-primary/70 opacity-75 dark:bg-blue-400/70"
+          />
+          <span
+            data-tauri-drag-region
+            className="relative inline-flex size-1.5 rounded-full bg-primary dark:bg-blue-400"
+          />
+        </span>
         Audio
       </span>
     </div>
