@@ -5,12 +5,19 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { HotkeyRecorder } from "@/features/settings/components/HotkeyRecorder";
 import { ThemeSwitcher } from "@/features/settings/components/ThemeSwitcher";
+import { UpdateAction } from "@/features/update/components/UpdateAction";
+import { describeUpdate } from "@/features/update/lib/describeUpdate";
+import type { UpdateStatus } from "@/features/update/types";
 import type { AppSettings } from "@/types/ipc";
 
 export interface SettingsViewProps {
   settings: AppSettings | null;
   hotkeyWarning: string | null;
+  updateStatus: UpdateStatus;
   onSettingsChange: (settings: AppSettings) => void;
+  onUpdateCheck: () => void;
+  onUpdateInstall: () => void;
+  onUpdateRestart: () => void;
   onClose: () => void;
 }
 
@@ -31,7 +38,11 @@ const Row: FC<{ label: string; hint?: string; children: ReactNode }> = ({
 export const SettingsView: FC<SettingsViewProps> = ({
   settings,
   hotkeyWarning,
+  updateStatus,
   onSettingsChange,
+  onUpdateCheck,
+  onUpdateInstall,
+  onUpdateRestart,
   onClose,
 }) => {
   const [isRecordingHotkey, setIsRecordingHotkey] = useState(false);
@@ -96,6 +107,17 @@ export const SettingsView: FC<SettingsViewProps> = ({
             onCheckedChange={(shouldLaunchAtLogin) => {
               onSettingsChange({ ...settings, shouldLaunchAtLogin });
             }}
+          />
+        </Row>
+
+        {/* Somul ships outside the App Store, so this row is the only way a user ever moves off
+            the build they installed. */}
+        <Row label="Updates" hint={describeUpdate(updateStatus)}>
+          <UpdateAction
+            status={updateStatus}
+            onCheck={onUpdateCheck}
+            onInstall={onUpdateInstall}
+            onRestart={onUpdateRestart}
           />
         </Row>
       </div>

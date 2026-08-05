@@ -38,6 +38,11 @@ PulseAudio fallback) in src-tauri/src/audio/linux/ and select it here."
 
 pub const PANEL_LABEL: &str = "main";
 
+/// The release-notes window: a real, ordinary window, unlike the panel.
+pub const UPDATE_WINDOW_LABEL: &str = "update";
+const UPDATE_WINDOW_WIDTH: f64 = 460.0;
+const UPDATE_WINDOW_HEIGHT: f64 = 580.0;
+
 /// Emitted every time the panel comes on screen.
 pub const PANEL_SHOWN_EVENT: &str = "panel://shown";
 pub const PANEL_WIDTH: f64 = 360.0;
@@ -72,6 +77,7 @@ pub fn run() {
         .invoke_handler(somul_command_handlers!())
         .manage(PanelState::default())
         .manage(shortcut::HotkeyState::default())
+        .manage(commands::update::UpdateState::default())
         .setup(|app| {
             // A tray-first panel is an accessory, not a Dock application. As a Regular app it
             // cannot take key focus over whatever is frontmost, so clicking the tray from inside
@@ -122,6 +128,57 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("failed to start the Somul application");
+}
+
+/// Opens the release-notes window, or brings the open one forward.
+///
+/// Everything the panel is not: decorated, resizable, and it stays where it is when the user
+/// clicks into another application. Release notes are read at the reader's pace, often beside the
+/// thing they were already doing, and the panel dismisses itself the moment focus leaves it.
+///
+/// The window renders the same bundle behind `?view=update`; the frontend routes on that.
+pub fn open_update_window<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+) -> tauri::Result<WebviewWindow<R>> {
+    if let Some(existing) = app.get_webview_window(UPDATE_WINDOW_LABEL) {
+        existing.show()?;
+        existing.set_focus()?;
+
+        return Ok(existing);
+    }
+
+    // Regular for as long as this window exists. As an Accessory the app cannot take key focus,
+    // so the window would open behind whatever the user was in, and typing would go elsewhere.
+    #[cfg(target_os = "macos")]
+    let _ = app.set_activation_policy(tauri::ActivationPolicy::Regular);
+
+    let window = WebviewWindowBuilder::new(
+        app,
+        UPDATE_WINDOW_LABEL,
+        WebviewUrl::App("index.html?view=update".into()),
+    )
+    .title("Software Update")
+    .inner_size(UPDATE_WINDOW_WIDTH, UPDATE_WINDOW_HEIGHT)
+    .min_inner_size(380.0, 420.0)
+    .resizable(true)
+    .center()
+    .build()?;
+
+    // Back to Accessory once it closes, or Somul keeps a Dock icon it has no use for.
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.clone();
+
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                let _ = handle.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            }
+        });
+    }
+
+    window.set_focus()?;
+
+    Ok(window)
 }
 
 /// Builds the panel window hidden, so the WebView boot cost never lands on the tray-ready

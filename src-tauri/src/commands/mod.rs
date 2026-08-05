@@ -3,6 +3,7 @@ pub mod panel;
 pub mod settings;
 #[cfg(test)]
 mod tests;
+pub mod update;
 
 use std::sync::Arc;
 
@@ -27,10 +28,15 @@ macro_rules! somul_command_handlers {
             $crate::commands::audio::set_session_output_device,
             $crate::commands::panel::set_panel_visibility,
             $crate::commands::panel::open_audio_permission_settings,
+            $crate::commands::panel::relaunch_app,
             $crate::commands::panel::set_panel_appearance,
             $crate::commands::settings::get_settings,
             $crate::commands::settings::update_settings,
             $crate::commands::settings::set_hotkey_capture,
+            $crate::commands::update::get_update_state,
+            $crate::commands::update::check_for_update,
+            $crate::commands::update::install_update,
+            $crate::commands::update::open_update_window,
         ]
     };
 }

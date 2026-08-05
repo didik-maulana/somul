@@ -501,6 +501,30 @@
   }
 }
 
+/* The update banner enters above content that is already on screen, so it arrives rather than
+   appears — a row of controls popping into existence above the mixer reads as a layout jump. */
+@keyframes update-notice-in {
+  0% {
+    transform: translateY(-4px);
+    opacity: 0;
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* For a download the server gave no length for. A bar that cannot know its position still has to
+   show that bytes are moving. */
+@keyframes update-progress-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
 @keyframes empty-ripple-expand {
   0% {
     transform: scale(0.6);

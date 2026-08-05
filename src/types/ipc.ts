@@ -68,6 +68,15 @@ export interface PlatformCapabilities {
    * whose sliders would move nothing.
    */
   needsAudioPermission: boolean;
+  /**
+   * The permission has been asked for again since, and the answer has not changed.
+   *
+   * Only ever true alongside {@link needsAudioPermission}. It separates a grant that has simply
+   * not landed yet from one this process will never see: macOS settles audio capture once per
+   * process, so a permission granted after launch needs a new one. The panel offers waiting for
+   * the first and a relaunch for the second.
+   */
+  hasExhaustedCaptureRetries: boolean;
 }
 
 export type AudioErrorKind =
@@ -112,6 +121,37 @@ export interface AppSettings {
   volumeMemory: Record<string, number>;
   /** processName -> last mute state. Same ownership as {@link AppSettings.volumeMemory}. */
   muteMemory: Record<string, boolean>;
+}
+
+/**
+ * Mirrors `UpdatePhase` in `src-tauri/src/commands/update.rs`.
+ *
+ * No `checking`: a check in flight is something one window says about itself while the user waits
+ * on it, not a fact about the app.
+ */
+export type BackendUpdatePhase =
+  | 'idle'
+  | 'upToDate'
+  | 'available'
+  | 'installing'
+  | 'installed'
+  | 'failed';
+
+/** Mirrors `UpdateSnapshot` in `src-tauri/src/commands/update.rs`. */
+export interface UpdateSnapshot {
+  phase: BackendUpdatePhase;
+  currentVersion: string;
+  /** Null when the running build is already the newest published one. */
+  availableVersion: string | null;
+  /** Release notes as published in the manifest. */
+  notes: string | null;
+}
+
+/** Mirrors `UpdateProgress` in `src-tauri/src/commands/update.rs`. */
+export interface UpdateProgress {
+  downloaded: number;
+  /** Null when the server sent no `Content-Length` — the download then has no percentage. */
+  total: number | null;
 }
 
 export interface SettingsUpdate {

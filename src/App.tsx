@@ -10,10 +10,12 @@ import { useOutputDevices } from "@/features/master/hooks/useOutputDevices";
 import { MixerList } from "@/features/mixer/components/MixerList";
 import { SettingsView } from "@/features/settings/components/SettingsView";
 import { useSettings } from "@/features/settings/hooks/useSettings";
+import { useAudioPermissionFlow } from "@/features/mixer/hooks/useAudioPermissionFlow";
 import { useAudioSessions } from "@/features/mixer/hooks/useAudioSessions";
 import { useVolumeCommit } from "@/features/mixer/hooks/useVolumeCommit";
+import { UpdateNotice } from "@/features/update/components/UpdateNotice";
+import { useUpdate } from "@/features/update/hooks/useUpdate";
 import { DEFAULT_HOTKEY } from "@/lib/accelerator";
-import { openAudioPermissionSettings } from "@/lib/ipc";
 import { useAudioStore } from "@/stores/audioStore";
 import type { AudioSession } from "@/types/ipc";
 
@@ -28,10 +30,12 @@ export const App: FC = () => {
 
   const [isShowingSettings, setIsShowingSettings] = useState(false);
   const settings = useSettings();
+  const update = useUpdate({ checksOnMount: true });
 
   const draggingSessionIds = useAudioStore((state) => state.draggingSessionIds);
   const isDraggingMaster = useAudioStore((state) => state.isDraggingMaster);
   const capabilities = useAudioStore((state) => state.capabilities);
+  const audioPermission = useAudioPermissionFlow(capabilities);
 
   const sessionCommit = useVolumeCommit(
     useCallback(
@@ -101,9 +105,22 @@ export const App: FC = () => {
       footer={
         <PanelFooter
           hotkey={settings.settings?.hotkey ?? DEFAULT_HOTKEY}
+          version={update.status.currentVersion}
         />
       }
     >
+      {/* Settings carries the same news in its own row, so the banner would be a second copy of
+          it on the screen the user is already reading. */}
+      {!isShowingSettings && update.isNoticeVisible && (
+        <UpdateNotice
+          status={update.status}
+          onInstall={update.install}
+          onRestart={update.restart}
+          onShowNotes={update.showNotes}
+          onDismiss={update.dismissNotice}
+        />
+      )}
+
       {/* Settings takes the whole panel. The master card is a control, and leaving it above a
           settings form makes the panel read as two screens at once. */}
       {!isShowingSettings && master.master && (
@@ -131,7 +148,11 @@ export const App: FC = () => {
           <SettingsView
             settings={settings.settings}
             hotkeyWarning={settings.hotkeyWarning}
+            updateStatus={update.status}
             onSettingsChange={settings.change}
+            onUpdateCheck={update.check}
+            onUpdateInstall={update.install}
+            onUpdateRestart={update.restart}
             onClose={() => {
               setIsShowingSettings(false);
             }}
@@ -147,9 +168,7 @@ export const App: FC = () => {
               void sessions.toggleMute(session);
             }}
             onRefresh={sessions.refresh}
-            onOpenAudioPermission={() => {
-              void openAudioPermissionSettings();
-            }}
+            audioPermission={audioPermission}
           />
         )}
       </div>

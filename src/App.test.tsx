@@ -24,8 +24,22 @@ const settings: AppSettings = {
   muteMemory: {},
 };
 
-const { setMasterVolumeSpy } = vi.hoisted(() => ({
+const { setMasterVolumeSpy, checkForUpdateSpy } = vi.hoisted(() => ({
   setMasterVolumeSpy: vi.fn(() => Promise.resolve()),
+  checkForUpdateSpy: vi.fn(
+    (): Promise<{
+      phase: string;
+      currentVersion: string;
+      availableVersion: string | null;
+      notes: string | null;
+    }> =>
+      Promise.resolve({
+        phase: 'upToDate',
+        currentVersion: '1.0.0',
+        availableVersion: null,
+        notes: null,
+      }),
+  ),
 }));
 
 vi.mock('@/lib/ipc', () => ({
@@ -50,8 +64,21 @@ vi.mock('@/lib/ipc', () => ({
   setSessionMute: () => Promise.resolve(),
   setDefaultOutputDevice: () => Promise.resolve(),
   setHotkeyCapture: () => Promise.resolve(),
+  getUpdateState: () =>
+    Promise.resolve({
+      phase: 'idle',
+      currentVersion: '1.0.0',
+      availableVersion: null,
+      notes: null,
+    }),
+  checkForUpdate: checkForUpdateSpy,
+  installUpdate: () => Promise.resolve(),
+  openUpdateWindow: () => Promise.resolve(),
+  onUpdateChanged: () => Promise.resolve(() => undefined),
+  onUpdateProgress: () => Promise.resolve(() => undefined),
   onPanelShown: () => Promise.resolve(() => undefined),
   openAudioPermissionSettings: () => Promise.resolve(),
+  relaunchApp: () => Promise.resolve(),
   onCapabilitiesChanged: () => Promise.resolve(() => undefined),
   onSessionsChanged: () => Promise.resolve(() => undefined),
   onMasterChanged: () => Promise.resolve(() => undefined),
@@ -62,6 +89,12 @@ vi.mock('@/lib/ipc', () => ({
 
 beforeEach(() => {
   setMasterVolumeSpy.mockClear();
+  checkForUpdateSpy.mockClear().mockResolvedValue({
+    phase: 'upToDate',
+    currentVersion: '1.0.0',
+    availableVersion: null,
+    notes: null,
+  });
   useAudioStore.setState({
     sessions: [],
     devices: [],
@@ -115,5 +148,57 @@ describe('App', () => {
     await openSettings();
 
     expect(setMasterVolumeSpy).not.toHaveBeenCalled();
+  });
+
+  /** The footer used to carry a hardcoded version, which the first self-update made a lie. */
+  it('names the running build in the footer', async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByText('v1.0.0')).toBeInTheDocument();
+    });
+  });
+
+  /** Nobody opens settings to discover they are on an old build, so the panel says so itself. */
+  it('raises an update notice above the mixer when a newer version exists', async () => {
+    checkForUpdateSpy.mockResolvedValue({
+      phase: 'available',
+      currentVersion: '1.0.0',
+      availableVersion: '1.1.0',
+      notes: null,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('update-notice')).toHaveTextContent('Update available');
+    });
+
+    expect(screen.getByTestId('update-notice')).toHaveTextContent('1.1.0');
+  });
+
+  it('keeps the notice off the panel while the build is current', async () => {
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('master-volume-card')).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId('update-notice')).not.toBeInTheDocument();
+  });
+
+  /** Settings carries the same news in its own row — two copies on one screen reads as a bug. */
+  it('drops the notice while settings is open', async () => {
+    checkForUpdateSpy.mockResolvedValue({
+      phase: 'available',
+      currentVersion: '1.0.0',
+      availableVersion: '1.1.0',
+      notes: null,
+    });
+
+    await openSettings();
+
+    expect(screen.queryByTestId('update-notice')).not.toBeInTheDocument();
+    expect(screen.getByText('Version 1.1.0 is ready to install')).toBeInTheDocument();
   });
 });

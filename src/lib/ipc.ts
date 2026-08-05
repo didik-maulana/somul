@@ -17,6 +17,8 @@ import type {
   PlatformCapabilities,
   SessionId,
   SettingsUpdate,
+  UpdateProgress,
+  UpdateSnapshot,
 } from '@/types/ipc';
 
 /**
@@ -184,9 +186,60 @@ export const setHotkeyCapture = (isCapturing: boolean): Promise<void> =>
 export const setPanelAppearance = (isDark: boolean | null): Promise<void> =>
   mutation('set_panel_appearance', { isDark });
 
+/**
+ * What the backend currently knows about the update.
+ *
+ * Read on mount by both windows: the release-notes window opens after the panel has already
+ * checked, so without this it would have to check again to learn what it is showing notes for.
+ */
+export const getUpdateState = (): Promise<UpdateSnapshot> =>
+  command<UpdateSnapshot>('get_update_state');
+
+/** Asks the release endpoint whether a newer signed build exists. */
+export const checkForUpdate = (): Promise<UpdateSnapshot> =>
+  command<UpdateSnapshot>('check_for_update');
+
+/** Fires in every window whenever the update reaches a new resting state. */
+export const onUpdateChanged = (
+  onEvent: (snapshot: UpdateSnapshot) => void,
+): Promise<UnlistenFn> =>
+  listen<UpdateSnapshot>('update://changed', ({ payload }) => {
+    onEvent(payload);
+  });
+
+/** Opens the release-notes window, or brings the open one forward. */
+export const openUpdateWindow = (): Promise<void> => mutation('open_update_window');
+
+/**
+ * Installs the update found by the last {@link checkForUpdate}, leaving the running process alone.
+ *
+ * Resolving means the new build is on disk, not that it is running — {@link relaunchApp} is what
+ * puts the user on it, whenever they choose.
+ */
+export const installUpdate = (): Promise<void> => mutation('install_update');
+
+/** Fires roughly once per percent while {@link installUpdate} downloads. */
+export const onUpdateProgress = (
+  onEvent: (progress: UpdateProgress) => void,
+): Promise<UnlistenFn> =>
+  listen<UpdateProgress>('update://progress', ({ payload }) => {
+    onEvent(payload);
+  });
+
 /** Opens the Privacy & Security pane where macOS grants audio capture. */
 export const openAudioPermissionSettings = (): Promise<void> =>
   mutation('open_audio_permission_settings');
+
+/**
+ * Restarts Somul into a new process.
+ *
+ * The one fix for a capture permission granted after launch: macOS settles that question once per
+ * process, so no amount of retrying inside this one will see it.
+ *
+ * Settles only when the restart failed — a successful one replaces the running process, taking
+ * the promise with it. Treat a resolution as "nothing happened".
+ */
+export const relaunchApp = (): Promise<void> => mutation('relaunch_app');
 
 /** Fires every time the tray puts the panel on screen. */
 export const PANEL_SHOWN_EVENT = 'panel://shown';

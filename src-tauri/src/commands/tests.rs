@@ -81,7 +81,7 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
     let webview = full_per_app();
     let session_id = first_session_id(&webview);
 
-    let calls: [(&str, Value); 11] = [
+    let calls: [(&str, Value); 12] = [
         ("get_platform_capabilities", json!({})),
         ("get_audio_sessions", json!({})),
         (
@@ -105,10 +105,18 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
             json!({ "sessionId": session_id, "deviceId": "mock:headphones" }),
         ),
         ("set_panel_visibility", json!({ "isVisible": true })),
+        // Reachable here because the restart itself is compiled out under `cfg(test)`. What is
+        // being checked is registration and argument decoding; the real body would replace the
+        // process running the suite.
+        ("relaunch_app", json!({})),
         // The two settings commands are absent on purpose. They need the store plugin, and
         // giving the mock app a real store would have the suite reading and writing a
         // developer's saved settings — the same defect as a test that changes their volume.
         // Their behaviour is covered by the pure migration tests in `settings.rs`.
+        //
+        // The two update commands are absent for the same class of reason: reaching them means
+        // reaching the release endpoint over the network, and `install_update` would replace the
+        // binary running the suite. Their payload shape is covered in `commands/update.rs`.
     ];
 
     for (cmd, body) in calls {

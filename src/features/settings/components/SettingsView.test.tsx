@@ -6,7 +6,16 @@ import { SettingsView } from '@/features/settings/components/SettingsView';
 
 // The recorder suspends the global shortcut over IPC; without a Tauri runtime that rejects.
 vi.mock('@/lib/ipc', () => ({ setHotkeyCapture: () => Promise.resolve() }));
+import type { UpdateStatus } from '@/features/update/types';
 import type { AppSettings } from '@/types/ipc';
+
+const upToDate: UpdateStatus = {
+  phase: 'upToDate',
+  currentVersion: '1.0.0',
+  availableVersion: null,
+  notes: null,
+  downloadFraction: null,
+};
 
 const settings: AppSettings = {
   schemaVersion: 1,
@@ -20,19 +29,33 @@ const settings: AppSettings = {
 
 const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {}) => {
   const onSettingsChange = vi.fn();
+  const onUpdateCheck = vi.fn();
+  const onUpdateInstall = vi.fn();
+  const onUpdateRestart = vi.fn();
   const onClose = vi.fn();
 
   render(
     <SettingsView
       settings={settings}
       hotkeyWarning={null}
+      updateStatus={upToDate}
       onSettingsChange={onSettingsChange}
+      onUpdateCheck={onUpdateCheck}
+      onUpdateInstall={onUpdateInstall}
+      onUpdateRestart={onUpdateRestart}
       onClose={onClose}
       {...overrides}
     />,
   );
 
-  return { onSettingsChange, onClose, user: userEvent.setup() };
+  return {
+    onSettingsChange,
+    onUpdateCheck,
+    onUpdateInstall,
+    onUpdateRestart,
+    onClose,
+    user: userEvent.setup(),
+  };
 };
 
 describe('SettingsView', () => {
@@ -92,7 +115,11 @@ describe('SettingsView', () => {
       <SettingsView
         settings={settings}
         hotkeyWarning={null}
+        updateStatus={upToDate}
         onSettingsChange={vi.fn()}
+        onUpdateCheck={vi.fn()}
+        onUpdateInstall={vi.fn()}
+        onUpdateRestart={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -103,7 +130,11 @@ describe('SettingsView', () => {
       <SettingsView
         settings={{ ...settings, theme: 'light' }}
         hotkeyWarning={null}
+        updateStatus={upToDate}
         onSettingsChange={vi.fn()}
+        onUpdateCheck={vi.fn()}
+        onUpdateInstall={vi.fn()}
+        onUpdateRestart={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -138,6 +169,57 @@ describe('SettingsView', () => {
     renderView();
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  /** Somul updates itself or not at all — nothing outside the app moves a user off a build. */
+  it('offers a manual update check', async () => {
+    const { onUpdateCheck, user } = renderView();
+
+    expect(screen.getByText('Up to date')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Check for updates' }));
+
+    expect(onUpdateCheck).toHaveBeenCalledOnce();
+  });
+
+  it('turns the update row into an install once a newer version exists', async () => {
+    const { onUpdateInstall, user } = renderView({
+      updateStatus: {
+        phase: 'available',
+        currentVersion: '1.0.0',
+        availableVersion: '1.1.0',
+        notes: null,
+        downloadFraction: null,
+      },
+    });
+
+    expect(screen.getByText('Version 1.1.0 is ready to install')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Check for updates' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Install update' }));
+
+    expect(onUpdateInstall).toHaveBeenCalledOnce();
+  });
+
+  /** The build on disk is new, the one running is not — the row has to say which. */
+  it('asks for a restart once the update is installed', async () => {
+    const { onUpdateRestart, user } = renderView({
+      updateStatus: {
+        phase: 'installed',
+        currentVersion: '1.0.0',
+        availableVersion: '1.1.0',
+        notes: null,
+        downloadFraction: null,
+      },
+    });
+
+    expect(
+      screen.getByText('Version 1.1.0 installed — restart to use it'),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Restart to finish the update' }));
+
+    expect(onUpdateRestart).toHaveBeenCalledOnce();
   });
 
   it('closes back to the mixer', async () => {

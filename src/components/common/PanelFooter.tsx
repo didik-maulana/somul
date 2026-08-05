@@ -4,17 +4,19 @@ import { formatAccelerator, isApplePlatform } from '@/lib/accelerator';
 
 export interface PanelFooterProps {
   hotkey: string;
-  version?: string;
+  /** The running build, read from the app itself. Absent only until that read comes back. */
+  version?: string | null;
 }
 
-export const PanelFooter: React.FC<PanelFooterProps> = ({
-  hotkey,
-  version = '1.0.0',
-}) => (
+export const PanelFooter: React.FC<PanelFooterProps> = ({ hotkey, version }) => (
   <footer className="border-border text-caption text-muted-foreground flex h-11 shrink-0 items-center justify-between border-t px-3">
     <div className="flex items-center gap-1.5">
       <span className="text-micro text-muted-foreground/80 font-medium">Somul</span>
-      <span className="text-micro text-muted-foreground/50 font-mono">v{version}</span>
+      {/* No fallback version. A hardcoded one goes stale the first time the app updates itself,
+          and a footer confidently naming the wrong build is worse than a footer naming none. */}
+      {version && (
+        <span className="text-micro text-muted-foreground/50 font-mono">v{version}</span>
+      )}
     </div>
 
     <div className="flex items-center gap-1.5" title="Shortcut to show or hide Somul panel">
