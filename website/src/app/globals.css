@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #eef3fc;
+  --color-brand-100: #d9e5f8;
+  --color-brand-200: #b8cdf1;
+  --color-brand-300: #8fafe8;
+  --color-brand-400: #6690df;
+  --color-brand-500: #4274d9;
+  --color-brand-600: #345cb4;
+  --color-brand-700: #2e4a9a;
+  --color-brand-800: #293681;
+  --color-brand-900: #222c68;
+  --color-brand-950: #161c42;
+
+  --color-signal-50: #f2fafc;
+  --color-signal-100: #e1f3f7;
+  --color-signal-200: #c4e6ee;
+  --color-signal-300: #95ccdd;
+  --color-signal-400: #6fb4ca;
+  --color-signal-500: #4e99b2;
+  --color-signal-600: #3b7b92;
+  --color-signal-700: #326374;
+
+  --color-mint-300: #aed4d2;
+  --color-mint-400: #85bab8;
+  --color-mint-500: #649b99;
+  --color-mint-600: #4e7d7c;
+
+  --color-ink-50: #f7f8fa;
+  --color-ink-100: #eff1f5;
+  --color-ink-200: #e2e5ec;
+  --color-ink-300: #c9ceda;
+  --color-ink-400: #9aa1b4;
+  --color-ink-500: #6e7689;
+  --color-ink-600: #4e5568;
+  --color-ink-700: #363c4b;
+  --color-ink-750: #2a2f3c;
+  --color-ink-800: #1e222c;
+  --color-ink-850: #171a22;
+  --color-ink-900: #12151b;
+  --color-ink-950: #0b0d12;
+
+  --font-sans: var(--font-inter), system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 28px;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: var(--color-ink-950);
+    color: var(--color-ink-100);
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: color-mix(in srgb, var(--color-brand-500) 40%, transparent);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-400);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+}
+
+@layer components {
+  .hairline {
+    border: 1px solid color-mix(in srgb, #fff 8%, transparent);
+  }
+
+  .surface {
+    background: color-mix(in srgb, var(--color-ink-900) 72%, transparent);
+    backdrop-filter: blur(24px) saturate(140%);
+  }
+
+  /* The grid is drawn with a mask rather than a fade overlay so a section can sit on any
+     background without a visible seam where the overlay ends. */
+  .grid-field {
+    background-image:
+      linear-gradient(to right, color-mix(in srgb, #fff 4%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in srgb, #fff 4%, transparent) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 80% 60% at 50% 40%, #000 0%, transparent 100%);
+  }
+
+  .text-gradient {
+    background: linear-gradient(120deg, #fff 0%, var(--color-brand-200) 45%, var(--color-signal-300) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

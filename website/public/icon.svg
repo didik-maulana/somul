@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="signature" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#293681"/>
+      <stop offset="55%" stop-color="#4274d9"/>
+      <stop offset="100%" stop-color="#95ccdd"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="#0b0d12"/>
+  <rect x="64" y="64" width="896" height="896" rx="180" fill="url(#signature)" opacity="0.14"/>
+  <g fill="url(#signature)">
+    <rect x="236" y="416" width="72" height="192" rx="36"/>
+    <rect x="360" y="320" width="72" height="384" rx="36"/>
+    <rect x="484" y="208" width="72" height="608" rx="36"/>
+    <rect x="608" y="352" width="72" height="320" rx="36"/>
+    <rect x="732" y="448" width="72" height="128" rx="36"/>
+  </g>
+</svg>
