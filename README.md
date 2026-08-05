@@ -211,7 +211,7 @@ an unsigned update quietly.
 The **public** half is in `src-tauri/tauri.conf.json` and is compiled into every build:
 
 ```
-minisign public key: D087DA4A0DEBDBE6
+minisign public key: 333AAEBC95206741
 ```
 
 That identifier is worth knowing. It is what a release is signed against, so if it ever changes
