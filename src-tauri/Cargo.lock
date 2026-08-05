@@ -3500,7 +3500,7 @@ dependencies = [
 
 [[package]]
 name = "somul"
-version = "1.0.0"
+version = "0.1.0"
 dependencies = [
  "block2",
  "coreaudio-sys",

@@ -18,6 +18,43 @@ rules and the checks a pull request has to pass.
 
 ---
 
+## ⬇️ Install
+
+Requires **macOS 14.4 or newer**. Download the `.dmg` from the
+[latest release](https://github.com/didik-maulana/somul/releases/latest), open it, and drag Somul
+to Applications.
+
+Then run this once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Somul.app
+```
+
+**Somul is not notarized yet, and without that command macOS will refuse to open it.** Not "warn
+about" — refuse: the app will not launch at all. Notarization needs a paid Apple Developer
+account, which this project does not have yet. Anything you download from the internet carries a
+quarantine flag; the command removes it for this one app.
+
+If you would rather not run a command, the same thing can be done through the interface: try to
+open Somul, then go to **System Settings → Privacy & Security**, find the message about Somul
+near the bottom, and choose **Open Anyway**. On macOS 15 and newer, right-clicking the app and
+choosing Open no longer works — that path was removed by Apple.
+
+Somul is open source. If you would rather not trust a binary you cannot verify, build your own:
+`npm ci && npm run tauri build`. A build you signed yourself needs no quarantine removal, and the
+audio permission then stays granted across rebuilds — see
+[`scripts/create-dev-signing-identity.sh`](scripts/create-dev-signing-identity.sh).
+
+### While unsigned, expect this
+
+- **The audio-capture permission resets on every update.** macOS attaches that permission to the
+  app's signature, and an unsigned build's signature changes with every release. Somul will ask
+  again and offer a relaunch when it does.
+- **Updates themselves still work.** Somul checks for them at launch and installs them on your
+  word; that signature is Somul's own and has nothing to do with Apple's.
+
+---
+
 ## ✨ Key Features
 
 - 🎛 **Per-App Volume Sliders**: Adjust volume levels for individual applications (Spotify, Chrome, Zoom, Games, Discord) independently.
@@ -138,6 +175,46 @@ fails whenever an earlier run left a volume mounted under `/Volumes` — a way f
 something it does not use. `--no-serve` publishes without serving; `--serve-only` serves what is
 already published. If the run stops on a key password, the signing key predates the password the
 script has: delete it, or export `SOMUL_TEST_KEY_PASSWORD` with the right one.
+
+---
+
+## 📦 Releasing
+
+`.github/workflows/release.yml` runs on a `v*` tag. It refuses to build unless the tag, the
+`version` in `src-tauri/tauri.conf.json`, and the one in `src-tauri/Cargo.toml` all agree — the
+updater compares the running build against the manifest, so a release published under one number
+while announcing another either re-offers an update that is already applied or hides one that is
+not.
+
+```sh
+# 1. set the version in src-tauri/tauri.conf.json and src-tauri/Cargo.toml
+# 2. commit it
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+The workflow builds a universal binary, signs it with the Developer ID identity, notarizes and
+staples it, then publishes a **draft** release carrying the `.dmg`, the `.app.tar.gz`, its
+signature, and `latest.json`. It is a draft on purpose: the release body becomes the "What's new"
+the panel shows, so it gets read before anyone is offered the update. **Nothing reaches existing
+installs until the draft is published** — `releases/latest/download/latest.json` only resolves for
+a published release.
+
+### Repository secrets
+
+| Secret | What it is |
+| :--- | :--- |
+| `TAURI_SIGNING_PRIVATE_KEY` | Contents of the updater signing key. Its public half is committed in `tauri.conf.json`; an artifact signed by any other key is refused by every installed copy. |
+| `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | That key's password. |
+| `APPLE_CERTIFICATE` | Developer ID Application certificate, exported as `.p12` and base64-encoded. |
+| `APPLE_CERTIFICATE_PASSWORD` | The `.p12` export password. |
+| `APPLE_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)`. |
+| `APPLE_ID` | Apple ID used for notarization. |
+| `APPLE_PASSWORD` | An **app-specific** password for that Apple ID, never the account password. |
+| `APPLE_TEAM_ID` | The 10-character team identifier. |
+
+The Developer ID identity is doing a second job beyond Gatekeeper: macOS attaches the
+audio-capture grant to the signature, so changing identity between releases asks every user for
+the permission again.
 
 ---
 

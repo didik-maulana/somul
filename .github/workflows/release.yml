@@ -1,0 +1,110 @@
+name: Release
+
+# Tag-driven, because the tag is the only artifact a human has to create by hand and the one
+# thing that must not happen by accident: a release that ships is a release users auto-update
+# into. `workflow_dispatch` exists for re-running a failed publish against an existing tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to build, e.g. v1.0.0'
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    # macOS only, matching the shipping platform. `platform_backend` in src-tauri/src/lib.rs
+    # fails a Windows or Linux build by name, so adding those runners here would only buy a
+    # slower way to reach the same compile_error.
+    runs-on: macos-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          # Both halves of the universal binary. Intel Macs are still in use, and a release
+          # that only runs on Apple silicon is a release half the users cannot install.
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - run: npm ci
+
+      # The version the updater compares against comes from tauri.conf.json, not from the tag.
+      # If they disagree, the release is published under one number and announces itself as
+      # another, and every installed copy either re-offers an update it already applied or
+      # never sees the new one at all.
+      - name: Check the tag matches the app version
+        run: |
+          TAG="${{ inputs.tag || github.ref_name }}"
+          APP="v$(node -p "require('./src-tauri/tauri.conf.json').version")"
+          CARGO="v$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)"
+
+          if [ "$TAG" != "$APP" ] || [ "$TAG" != "$CARGO" ]; then
+            echo "Tag $TAG, tauri.conf.json $APP, Cargo.toml $CARGO — all three must agree." >&2
+            exit 1
+          fi
+
+      - name: Verify contrast tokens
+        run: npm run audit:contrast
+
+      - name: Verify
+        run: npm run verify
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+          # Signs the update artifact. The matching public key is committed in
+          # tauri.conf.json; an artifact signed by anything else is refused by every
+          # installed copy, which is the whole point of the mechanism.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+          # Developer ID signing. Distinct from the update signature above: this one is what
+          # Gatekeeper checks, and it is also what the audio-capture permission is attached to
+          # — a build signed by a different identity asks the user for the grant again.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+
+          # Notarization. Without it Gatekeeper blocks the app outright on any machine that
+          # did not build it, so an unnotarized release is not a release.
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: ${{ inputs.tag || github.ref_name }}
+          releaseName: 'Somul __VERSION__'
+          releaseBody: ${{ github.event.head_commit.message || 'See the changelog below.' }}
+          # Published as a draft: the release body becomes the "What's new" the panel shows,
+          # so it gets read and edited before anyone is offered the update.
+          releaseDraft: true
+          prerelease: false
+          # Writes latest.json alongside the artifacts. It is what
+          # plugins.updater.endpoints in tauri.conf.json points at; without it the endpoint
+          # 404s and every installed copy reports that it cannot reach the update server.
+          includeUpdaterJson: true
+          args: --target universal-apple-darwin
