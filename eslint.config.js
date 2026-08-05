@@ -6,7 +6,9 @@ import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'src-tauri/target', 'src-tauri/gen', 'coverage'],
+    // `website` is a separate package with its own ESLint config; linting it from here loads
+    // eslint-config-next through this config's plugins and fails before reaching any rule.
+    ignores: ['dist', 'src-tauri/target', 'src-tauri/gen', 'coverage', 'website'],
   },
   js.configs.recommended,
   tseslint.configs.strictTypeChecked,

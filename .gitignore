@@ -106,6 +106,10 @@ target/
 # Generated permission and capability schemas
 src-tauri/gen/
 
+# Override config written by scripts/serve-test-update.sh. It carries a throwaway public key and
+# a plain-http endpoint, and committing it would put both one merge away from a real build.
+src-tauri/tauri.updater-test.conf.json
+
 ### Internal planning documents
 # Design, architecture, and build-plan notes. Kept locally, deliberately not
 # published: code comments carry the reasoning a contributor needs (CONTRIBUTING.md).

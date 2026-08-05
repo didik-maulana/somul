@@ -77,6 +77,70 @@ replace its `compile_error!` in `src-tauri/src/lib.rs` with a real adapter.
 
 ---
 
+## 🧪 Testing
+
+```sh
+npm run verify        # typecheck, lint, vitest, clippy, cargo test
+npm test              # frontend only
+```
+
+### Testing the updater
+
+Somul ships outside the App Store, so the in-app updater is the only thing that ever moves a user
+off the build they installed. It has three test levels, cheapest first.
+
+**1. Automated.** Covered by `npm run verify` — the check-at-launch, the banner, the settings row,
+and the payload shape.
+
+**2. The UI, without a release.** An environment variable makes the app announce a version:
+
+```sh
+SOMUL_FAKE_UPDATE=9.9.9 npm run tauri dev    # banner, "What's new", and the Install row
+SOMUL_FAKE_UPDATE=1.0.0 npm run tauri dev    # the up-to-date branch
+```
+
+Debug builds only, and it stands in for the *check* alone: pressing Install afterwards fails,
+because there is no release behind it. Everything up to that point is real — the banner, the
+release-notes disclosure, the settings row, and the check that runs at launch.
+
+**3. The real download, install, and restart.** The updater refuses any artifact that is not
+signed by the key compiled into the app, so this needs its own key and its own feed. One script
+does all of it:
+
+```sh
+./scripts/serve-test-update.sh --install   # build the current version, put it in /Applications
+# bump `version` in src-tauri/tauri.conf.json and src-tauri/Cargo.toml
+./scripts/serve-test-update.sh --slow      # build the newer one, publish it, serve it slowly
+```
+
+Then launch the installed copy: the notice appears in the panel, "What's new" opens the release
+notes in their own window, Update downloads in the background behind a progress bar, and the
+notice then offers **Restart now** or **Later** — the new build only takes over when you say so.
+
+The changelog is deliberately not in the panel. The panel dismisses itself whenever focus moves
+elsewhere, so notes read there vanish on the first click into another application. Rust owns the
+update's phase and announces it, which is what keeps the two windows agreeing about what has
+already been installed.
+
+**The banner belongs to the installed build, not to this checkout.** Testing a change to the
+update UI therefore takes two builds: install one that *contains* the change, then publish
+something newer still for it to find.
+
+`--slow` throttles the feed to 512 kB/s (`--slow=128` for slower). Unthrottled, a local server
+hands over the whole bundle in under a second and the progress bar is gone before it can be read.
+
+The script writes its endpoint and public key into a generated override config rather than
+touching `tauri.conf.json`, so a test build can never be confused with a real one — delete
+`src-tauri/tauri.updater-test.conf.json` when you are done.
+
+It bundles the `.app` alone, never the DMG: the updater ships the `.app.tar.gz`, and `bundle_dmg.sh`
+fails whenever an earlier run left a volume mounted under `/Volumes` — a way for the test to fail at
+something it does not use. `--no-serve` publishes without serving; `--serve-only` serves what is
+already published. If the run stops on a key password, the signing key predates the password the
+script has: delete it, or export `SOMUL_TEST_KEY_PASSWORD` with the right one.
+
+---
+
 ## 🛠 Tech Stack & Architecture
 
 - **Backend**: Tauri v2 (Rust) behind a platform-agnostic `AudioBackend` trait — Core Audio today, WASAPI and PipeWire next
