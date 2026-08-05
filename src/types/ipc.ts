@@ -103,8 +103,15 @@ export interface AppSettings {
   shouldLaunchAtLogin: boolean;
   /** processName -> deviceId. Reserved for per-app routing. */
   routingPresets: Record<string, string>;
-  /** processName -> last volume scalar 0.0-1.0. */
+  /**
+   * processName -> last volume scalar 0.0-1.0.
+   *
+   * Backend-owned: written as the user mixes and applied when an app is next seen. `update_settings`
+   * keeps what is on disk, so sending a stale copy back is harmless — and pointless.
+   */
   volumeMemory: Record<string, number>;
+  /** processName -> last mute state. Same ownership as {@link AppSettings.volumeMemory}. */
+  muteMemory: Record<string, boolean>;
 }
 
 export interface SettingsUpdate {

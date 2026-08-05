@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod commands;
+pub mod memory;
 pub mod meter;
 #[cfg(desktop)]
 pub mod shortcut;
@@ -81,7 +82,14 @@ pub fn run() {
 
             // One adapter instance, shared by the command layer and the meter loop. Two would
             // mean two OS enumerators whose views drift apart.
-            let backend = platform_backend();
+            //
+            // Memory wraps the adapter rather than sitting above it, so restoring an app's level
+            // happens as it is enumerated and every write is remembered wherever it came from.
+            let backend: std::sync::Arc<dyn audio::AudioBackend> =
+                std::sync::Arc::new(memory::RememberingBackend::new(
+                    platform_backend(),
+                    std::sync::Arc::new(memory::StoredMemory::new(app.handle().clone())),
+                ));
             let gate = std::sync::Arc::new(meter::MeterGate::new());
 
             app.manage(commands::AudioState::new(

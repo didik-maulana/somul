@@ -15,6 +15,7 @@ const settings: AppSettings = {
   shouldLaunchAtLogin: false,
   routingPresets: {},
   volumeMemory: {},
+  muteMemory: {},
 };
 
 const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {}) => {

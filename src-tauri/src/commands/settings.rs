@@ -34,6 +34,8 @@ pub fn update_settings<R: Runtime>(
     let previous = crate::settings::load(&app);
     let mut applied = settings;
 
+    settings::preserve_memory(&previous, &mut applied);
+
     let hotkey_warning = apply_hotkey(&app, &previous, &mut applied);
     apply_launch_at_login(&app, &previous, &applied);
 

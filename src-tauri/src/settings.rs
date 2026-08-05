@@ -17,7 +17,7 @@ use tauri_plugin_store::StoreExt;
 use crate::shortcut::DEFAULT_HOTKEY;
 
 /// Bumped on every breaking change. Each step gets a branch in [`migrate`].
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 /// The store file inside the platform config directory.
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -39,8 +39,11 @@ pub struct AppSettings {
     pub should_launch_at_login: bool,
     /// processName -> deviceId (v1.1).
     pub routing_presets: BTreeMap<String, String>,
-    /// processName -> last volume scalar.
+    /// processName -> last volume scalar. Written by the audio path, not by the settings view —
+    /// see [`crate::memory`] and [`preserve_memory`].
     pub volume_memory: BTreeMap<String, f32>,
+    /// processName -> last mute state. Same ownership as [`AppSettings::volume_memory`].
+    pub mute_memory: BTreeMap<String, bool>,
 }
 
 impl Default for AppSettings {
@@ -52,6 +55,7 @@ impl Default for AppSettings {
             should_launch_at_login: false,
             routing_presets: BTreeMap::new(),
             volume_memory: BTreeMap::new(),
+            mute_memory: BTreeMap::new(),
         }
     }
 }
@@ -75,6 +79,10 @@ pub fn migrate(mut stored: Map<String, Value>) -> Map<String, Value> {
         insert_missing(&mut stored, "shouldLaunchAtLogin", Value::from(false));
         insert_missing(&mut stored, "routingPresets", Value::Object(Map::new()));
         insert_missing(&mut stored, "volumeMemory", Value::Object(Map::new()));
+    }
+
+    if stored_version(&stored) < 2 {
+        insert_missing(&mut stored, "muteMemory", Value::Object(Map::new()));
     }
 
     stored.insert(
@@ -113,7 +121,19 @@ pub fn from_stored(stored: &Map<String, Value>) -> AppSettings {
             .unwrap_or(defaults.should_launch_at_login),
         routing_presets: string_map(stored.get("routingPresets")),
         volume_memory: scalar_map(stored.get("volumeMemory")),
+        mute_memory: bool_map(stored.get("muteMemory")),
     }
+}
+
+/// Keeps the per-app memory that is already on disk when settings arrive from the UI.
+///
+/// Memory is written by the audio path while the panel is open, but the settings view round-trips
+/// the whole struct as it read it — at startup, in practice. Echoing that copy back would roll
+/// every level remembered since then back to the startup snapshot, so a theme change would silently
+/// undo an evening of mixing.
+pub fn preserve_memory(stored: &AppSettings, incoming: &mut AppSettings) {
+    incoming.volume_memory.clone_from(&stored.volume_memory);
+    incoming.mute_memory.clone_from(&stored.mute_memory);
 }
 
 fn string_map(value: Option<&Value>) -> BTreeMap<String, String> {
@@ -141,6 +161,18 @@ fn scalar_map(value: Option<&Value>) -> BTreeMap<String, f32> {
                         .as_f64()
                         .map(|scalar| (key.clone(), crate::audio::clamp_unit_scalar(scalar as f32)))
                 })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn bool_map(value: Option<&Value>) -> BTreeMap<String, bool> {
+    value
+        .and_then(Value::as_object)
+        .map(|entries| {
+            entries
+                .iter()
+                .filter_map(|(key, value)| value.as_bool().map(|flag| (key.clone(), flag)))
                 .collect()
         })
         .unwrap_or_default()
@@ -211,6 +243,7 @@ mod tests {
         assert!(!settings.should_launch_at_login);
         assert!(settings.routing_presets.is_empty());
         assert!(settings.volume_memory.is_empty());
+        assert!(settings.mute_memory.is_empty());
     }
 
     #[test]
@@ -224,6 +257,7 @@ mod tests {
             "shouldLaunchAtLogin",
             "routingPresets",
             "volumeMemory",
+            "muteMemory",
         ] {
             assert!(encoded.contains_key(key), "{key} is missing from the store");
         }
@@ -297,6 +331,7 @@ mod tests {
         let migrated = migrate(stored(json!({
             "routingPresets": { "spotify.exe": "device:headphones" },
             "volumeMemory": { "spotify.exe": 0.42 },
+            "muteMemory": { "spotify.exe": true },
         })));
 
         let settings = from_stored(&migrated);
@@ -309,6 +344,44 @@ mod tests {
             Some("device:headphones")
         );
         assert_eq!(settings.volume_memory.get("spotify.exe"), Some(&0.42));
+        assert_eq!(settings.mute_memory.get("spotify.exe"), Some(&true));
+    }
+
+    /// v1 shipped without mute memory. Upgrading must add it without disturbing the volumes a
+    /// user already accumulated.
+    #[test]
+    fn migrates_a_v1_store_to_v2_without_losing_remembered_volumes() {
+        let migrated = migrate(stored(json!({
+            "schemaVersion": 1,
+            "volumeMemory": { "spotify.exe": 0.3 },
+        })));
+
+        let settings = from_stored(&migrated);
+
+        assert_eq!(settings.schema_version, 2);
+        assert_eq!(settings.volume_memory.get("spotify.exe"), Some(&0.3));
+        assert!(settings.mute_memory.is_empty());
+    }
+
+    /// The settings view round-trips the whole struct, and its copy of the memory is as old as
+    /// the panel session. Applying it would undo every level remembered since.
+    #[test]
+    fn keeps_stored_memory_when_settings_arrive_from_the_ui() {
+        let on_disk = AppSettings {
+            volume_memory: BTreeMap::from([("spotify.exe".to_owned(), 0.3)]),
+            mute_memory: BTreeMap::from([("discord.exe".to_owned(), true)]),
+            ..AppSettings::default()
+        };
+        let mut incoming = AppSettings {
+            theme: Theme::Dark,
+            ..AppSettings::default()
+        };
+
+        preserve_memory(&on_disk, &mut incoming);
+
+        assert_eq!(incoming.volume_memory, on_disk.volume_memory);
+        assert_eq!(incoming.mute_memory, on_disk.mute_memory);
+        assert_eq!(incoming.theme, Theme::Dark, "the rest of the change stands");
     }
 
     #[test]
@@ -353,6 +426,7 @@ mod tests {
             should_launch_at_login: true,
             routing_presets: BTreeMap::from([("spotify.exe".to_owned(), "dev:1".to_owned())]),
             volume_memory: BTreeMap::from([("spotify.exe".to_owned(), 0.25)]),
+            mute_memory: BTreeMap::from([("chrome.exe".to_owned(), true)]),
             ..AppSettings::default()
         };
 
