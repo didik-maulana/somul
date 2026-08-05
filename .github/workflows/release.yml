@@ -1,15 +1,21 @@
 name: Release
 
-# Tag-driven, because the tag is the only artifact a human has to create by hand and the one
-# thing that must not happen by accident: a release that ships is a release users auto-update
-# into. `workflow_dispatch` exists for re-running a failed publish against an existing tag.
+# Manual only, and deliberately not tag-driven.
+#
+# Running here means handing the updater's private key to GitHub Secrets, and that key is the one
+# thing standing between a user and an update that is not from us: whoever holds it can sign a
+# release every installed copy will accept. In a shared secret store it is reachable by anyone who
+# can write a workflow in this repository. Releases are therefore built and signed on the
+# maintainer's machine, where the key already lives and never leaves.
+#
+# This workflow is the automation waiting for the day that trade changes — a second maintainer, or
+# a release cadence that makes signing by hand a chore. Until then it runs only when someone asks
+# it to, and it refuses to publish an unsigned update rather than shipping one quietly.
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing tag to build, e.g. v1.0.0'
+        description: 'Existing tag to build, e.g. v0.2.0'
         required: true
 
 concurrency:
@@ -58,12 +64,23 @@ jobs:
       # never sees the new one at all.
       - name: Check the tag matches the app version
         run: |
-          TAG="${{ inputs.tag || github.ref_name }}"
+          TAG="${{ inputs.tag }}"
           APP="v$(node -p "require('./src-tauri/tauri.conf.json').version")"
           CARGO="v$(grep -m1 '^version' src-tauri/Cargo.toml | cut -d'"' -f2)"
 
           if [ "$TAG" != "$APP" ] || [ "$TAG" != "$CARGO" ]; then
             echo "Tag $TAG, tauri.conf.json $APP, Cargo.toml $CARGO — all three must agree." >&2
+            exit 1
+          fi
+
+      # An unsigned update is one no installed copy will accept, so producing one is not a
+      # partial success — it is a release that looks finished and updates nobody. Fail here,
+      # loudly, rather than at the end of a ten-minute build.
+      - name: Require the updater signing key
+        run: |
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY is not set. Releases are normally signed on the" >&2
+            echo "maintainer's machine; add the secret only if this workflow is meant to sign." >&2
             exit 1
           fi
 
@@ -96,9 +113,9 @@ jobs:
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
-          tagName: ${{ inputs.tag || github.ref_name }}
+          tagName: ${{ inputs.tag }}
           releaseName: 'Somul __VERSION__'
-          releaseBody: ${{ github.event.head_commit.message || 'See the changelog below.' }}
+          releaseBody: 'See the changelog below.'
           # Published as a draft: the release body becomes the "What's new" the panel shows,
           # so it gets read and edited before anyone is offered the update.
           releaseDraft: true
