@@ -10,6 +10,7 @@ const fullPerApp: PlatformCapabilities = {
   hasPerAppMute: true,
   hasPerAppMeter: true,
   needsAudioPermission: false,
+  hasExhaustedCaptureRetries: false,
   hasPerAppRouting: false,
   unsupportedReason: null,
 };
@@ -19,6 +20,7 @@ const masterOnly: PlatformCapabilities = {
   hasPerAppMute: false,
   hasPerAppMeter: false,
   needsAudioPermission: false,
+  hasExhaustedCaptureRetries: false,
   hasPerAppRouting: false,
   unsupportedReason: 'macOS exposes master volume only in v1.',
 };
@@ -45,7 +47,7 @@ const renderList = (overrides: Partial<Parameters<typeof MixerList>[0]> = {}) =>
       onVolumeCommit={vi.fn()}
       onMuteToggle={vi.fn()}
       onRefresh={vi.fn()}
-      onOpenAudioPermission={vi.fn()}
+      audioPermission={{ phase: 'unrequested', openSettings: vi.fn(), relaunch: vi.fn() }}
       {...overrides}
     />,
   );
@@ -146,12 +148,56 @@ describe('MixerList', () => {
     /** A notice with no way to act on it reads as a dead end, and a dead end reads as a bug. */
     it('opens the settings pane on request', async () => {
       const user = userEvent.setup();
-      const onOpenAudioPermission = vi.fn();
+      const openSettings = vi.fn();
 
-      renderList({ capabilities: awaitingPermission, onOpenAudioPermission });
+      renderList({
+        capabilities: awaitingPermission,
+        audioPermission: { phase: 'unrequested', openSettings, relaunch: vi.fn() },
+      });
       await user.click(screen.getByRole('button', { name: /open privacy settings/i }));
 
-      expect(onOpenAudioPermission).toHaveBeenCalledOnce();
+      expect(openSettings).toHaveBeenCalledOnce();
+    });
+
+    it('says the grant is still being waited on once settings have been opened', () => {
+      renderList({
+        capabilities: awaitingPermission,
+        audioPermission: { phase: 'awaiting', openSettings: vi.fn(), relaunch: vi.fn() },
+      });
+
+      expect(screen.getByText('Waiting for macOS')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /relaunch somul/i })).not.toBeInTheDocument();
+    });
+
+    /**
+     * The whole point of the phase. Retrying is all a running process can do, and once that is
+     * spent the panel has to stop showing the button the user has already pressed.
+     */
+    it('offers a relaunch once retrying has stopped helping', async () => {
+      const user = userEvent.setup();
+      const relaunch = vi.fn();
+
+      renderList({
+        capabilities: { ...awaitingPermission, hasExhaustedCaptureRetries: true },
+        audioPermission: { phase: 'relaunchRequired', openSettings: vi.fn(), relaunch },
+      });
+      await user.click(screen.getByRole('button', { name: /relaunch somul/i }));
+
+      expect(relaunch).toHaveBeenCalledOnce();
+    });
+
+    /** For the user the relaunch offer guesses wrong about: they never ticked the box. */
+    it('keeps a way back to the settings pane alongside the relaunch', async () => {
+      const user = userEvent.setup();
+      const openSettings = vi.fn();
+
+      renderList({
+        capabilities: { ...awaitingPermission, hasExhaustedCaptureRetries: true },
+        audioPermission: { phase: 'relaunchRequired', openSettings, relaunch: vi.fn() },
+      });
+      await user.click(screen.getByRole('button', { name: /open privacy settings/i }));
+
+      expect(openSettings).toHaveBeenCalledOnce();
     });
   });
 });

@@ -1,4 +1,4 @@
-use tauri::{Runtime, State, Window};
+use tauri::{AppHandle, Runtime, State, Window};
 
 use crate::commands::AudioState;
 
@@ -71,4 +71,33 @@ pub fn open_audio_permission_settings() -> Result<(), crate::audio::AudioError> 
     }
 
     Ok(())
+}
+
+/// Restarts Somul so an audio-capture permission granted since launch can take effect.
+///
+/// The engine already rebuilds its taps to re-ask macOS, and that is enough for most of what can
+/// go wrong. It cannot reach this case: macOS settles the capture question once per process, so a
+/// grant that lands while Somul is running is invisible to every tap this process will ever
+/// create. A new process is the only thing that gets a fresh answer.
+///
+/// The single-instance lock is released first. It is held for the lifetime of the process, and
+/// the replacement starts while this one is still exiting — it would find the lock taken, hand its
+/// arguments to a process on its way out, and quit, leaving no Somul running at all.
+///
+/// Never returns on success: the process is replaced mid-call, so the frontend's promise dies
+/// with it rather than resolving.
+#[tauri::command]
+pub fn relaunch_app<R: Runtime>(app: AppHandle<R>) {
+    // The mock runtime has no process to replace, and the handler test invokes this by name like
+    // any other command — unguarded, it would restart the test binary.
+    #[cfg(not(test))]
+    {
+        #[cfg(desktop)]
+        tauri_plugin_single_instance::destroy(&app);
+
+        app.restart();
+    }
+
+    #[cfg(test)]
+    let _ = app;
 }

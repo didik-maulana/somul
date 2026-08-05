@@ -812,7 +812,7 @@ mod tests {
             Arc::clone(&emitter) as Arc<dyn PanelEventEmitter>,
         );
 
-        thread::sleep(TICK * (SESSION_POLL_EVERY_TICKS as u32 * 2 + 4));
+        thread::sleep(TICK * (SESSION_POLL_EVERY_TICKS * 2 + 4));
         loop_under_test.stop();
 
         assert_eq!(

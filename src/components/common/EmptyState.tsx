@@ -20,6 +20,13 @@ export interface EmptyStateProps {
    * dead end reads as a broken app.
    */
   action?: EmptyStateAction;
+  /**
+   * The way back, when the primary action is a guess about what the user already did.
+   *
+   * Kept quieter than {@link action} on purpose: a state offering two equal buttons asks the user
+   * to diagnose their own problem, which is the job the state is meant to have done for them.
+   */
+  secondaryAction?: EmptyStateAction;
 }
 
 /**
@@ -35,6 +42,7 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
   subline,
   onRefresh,
   action,
+  secondaryAction,
 }) => (
   <div
     data-testid="empty-state"
@@ -83,6 +91,19 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
       >
         <action.icon size={14} strokeWidth={1.75} aria-hidden="true" />
         {action.label}
+      </Button>
+    )}
+
+    {secondaryAction && (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="-mt-2 text-muted-foreground transition-colors duration-200 hover:text-foreground"
+        onClick={secondaryAction.onClick}
+      >
+        <secondaryAction.icon size={14} strokeWidth={1.75} aria-hidden="true" />
+        {secondaryAction.label}
       </Button>
     )}
 

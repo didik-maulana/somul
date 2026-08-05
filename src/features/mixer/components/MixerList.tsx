@@ -5,6 +5,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { AppAudioRow } from '@/features/mixer/components/AppAudioRow';
 import { AudioPermissionNotice } from '@/features/mixer/components/AudioPermissionNotice';
 import { CapabilityNotice } from '@/features/mixer/components/CapabilityNotice';
+import type { AudioPermissionFlow } from '@/features/mixer/hooks/useAudioPermissionFlow';
 import type { AudioSession, PlatformCapabilities, SessionId } from '@/types/ipc';
 
 export interface MixerListProps {
@@ -15,7 +16,8 @@ export interface MixerListProps {
   onVolumeCommit: (session: AudioSession, volume: number) => void;
   onMuteToggle: (session: AudioSession) => void;
   onRefresh: () => void;
-  onOpenAudioPermission: () => void;
+  /** Grouped rather than passed as loose callbacks: the phase and its two actions only make sense together. */
+  audioPermission: AudioPermissionFlow;
 }
 
 /**
@@ -31,7 +33,7 @@ export const MixerList: React.FC<MixerListProps> = ({
   onVolumeCommit,
   onMuteToggle,
   onRefresh,
-  onOpenAudioPermission,
+  audioPermission,
 }) => {
   if (capabilities === null) {
     return <div data-testid="mixer-loading" className="flex-1" aria-busy="true" />;
@@ -45,7 +47,12 @@ export const MixerList: React.FC<MixerListProps> = ({
   // that Somul cannot hear the ones that are.
   if (capabilities.needsAudioPermission) {
     return (
-      <AudioPermissionNotice capabilities={capabilities} onOpenSettings={onOpenAudioPermission} />
+      <AudioPermissionNotice
+        capabilities={capabilities}
+        phase={audioPermission.phase}
+        onOpenSettings={audioPermission.openSettings}
+        onRelaunch={audioPermission.relaunch}
+      />
     );
   }
 

@@ -211,6 +211,16 @@ pub(super) fn is_diagnosing() -> bool {
 /// working. Rebuilding passthrough taps is inaudible, so the only cost is the CoreAudio calls.
 const CAPTURE_RETRY: Duration = Duration::from_secs(3);
 
+/// How many rebuilds may come back silent before retrying stops being a plausible fix.
+///
+/// Past this, a grant made while Somul was running would already have been picked up, and what is
+/// left is the case no rebuild can reach: macOS settles the capture question once per process, so
+/// a permission granted after launch is only seen by a process that starts after it.
+///
+/// Two rather than one. The first retry races a user who is still walking to System Settings, and
+/// offering a relaunch while the checkbox is still unticked sends them round a loop with no exit.
+const CAPTURE_RETRIES_BEFORE_RELAUNCH: u32 = 2;
+
 impl SessionControl {
     fn new(gain: f32, is_muted: bool, has_signal: bool) -> Self {
         Self {
@@ -376,6 +386,12 @@ struct EngineState {
     /// clock every retry, and the panel would swing between the permission notice and a list of
     /// dead rows for as long as the permission stayed unresolved.
     silent_since: Option<Instant>,
+    /// How many times capture has been asked for again since the taps fell silent.
+    ///
+    /// Survives a rebuild, unlike `probed_at`, because it counts attempts rather than pacing them.
+    /// Cleared only when capture succeeds: the panel reads it to tell a grant that has not landed
+    /// yet from one this process will never see.
+    capture_retries: u32,
 }
 
 /// The engine as the backend sees it.
@@ -452,6 +468,7 @@ impl TapEngine {
 
         self.has_proven_capture.store(true, Ordering::Relaxed);
         state.silent_since = None;
+        state.capture_retries = 0;
         record_capture_proof();
 
         Ok(())
@@ -550,7 +567,28 @@ impl TapEngine {
 
         diagnose!("still silent, asking macOS for capture again");
 
-        state.rebuild(&processes, TapMute::Passthrough)
+        let outcome = state.rebuild(&processes, TapMute::Passthrough);
+
+        // Counted only when the taps were actually rebuilt. A rebuild that failed never put the
+        // question to macOS, and counting it would spend the budget that decides whether asking
+        // again is still worth the user's time.
+        if outcome.is_ok() {
+            state.capture_retries = state.capture_retries.saturating_add(1);
+        }
+
+        outcome
+    }
+
+    /// Whether asking macOS again has stopped being worth offering.
+    ///
+    /// True once the retries have run out with nothing heard. The panel uses it to swap "waiting
+    /// for the permission" for the one thing a running process cannot do for itself — start a new
+    /// one that macOS will answer afresh.
+    ///
+    /// Scoped to a withheld capture by the caller: on its own this says only that rebuilds have
+    /// happened, which is also true of a Mac where nothing has been playing.
+    pub fn has_exhausted_capture_retries(&self) -> bool {
+        self.lock().capture_retries >= CAPTURE_RETRIES_BEFORE_RELAUNCH
     }
 
     /// Whether any tap has ever delivered audio.

@@ -526,7 +526,10 @@ instead.",
         // trades the list for the one action that fixes it: rows the user cannot control are
         // worse than no rows, because each one looks like a bug of its own.
         if self.engine.is_capture_withheld() {
-            return PlatformCapabilities::awaiting_audio_permission(WITHHELD_REASON);
+            return PlatformCapabilities::awaiting_audio_permission(
+                WITHHELD_REASON,
+                self.engine.has_exhausted_capture_retries(),
+            );
         }
 
         // A tap that exists is the evidence, not a tap that is already carrying gain. Taps start
