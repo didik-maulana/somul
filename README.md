@@ -199,6 +199,27 @@ the panel shows, so it gets read before anyone is offered the update. **Nothing 
 installs until the draft is published** — `releases/latest/download/latest.json` only resolves for
 a published release.
 
+### The signing key, and why it is not in CI
+
+Releases are built and signed on the maintainer's machine. The updater's private key is what
+stands between a user and an update that is not from us — whoever holds it can sign a release
+every installed copy accepts without asking — and putting it in repository secrets makes it
+reachable by anyone who can write a workflow here. The workflow below exists for the day that
+trade changes; it runs only when asked, and refuses to build without the key rather than shipping
+an unsigned update quietly.
+
+The **public** half is in `src-tauri/tauri.conf.json` and is compiled into every build:
+
+```
+minisign public key: D087DA4A0DEBDBE6
+```
+
+That identifier is worth knowing. It is what a release is signed against, so if it ever changes
+between releases without a note explaining why, something is wrong — either the key was rotated
+deliberately, or a release is not coming from where you think. Anyone can check a downloaded
+`.app.tar.gz` against it with [minisign](https://jedisct1.github.io/minisign/) and the `.sig`
+published beside it.
+
 ### Repository secrets
 
 | Secret | What it is |

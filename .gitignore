@@ -110,6 +110,14 @@ src-tauri/gen/
 # a plain-http endpoint, and committing it would put both one merge away from a real build.
 src-tauri/tauri.updater-test.conf.json
 
+### Signing keys
+# The updater's private key signs releases that every installed copy will accept without asking,
+# so a stray copy inside this repository is one push from being world-readable and permanent —
+# GitHub is scraped for secrets within seconds. The real key lives in ~/.tauri, outside the tree;
+# this pattern is here for the day someone generates one in the wrong directory.
+*.key
+*.key.pub
+
 ### Internal planning documents
 # Design, architecture, and build-plan notes. Kept locally, deliberately not
 # published: code comments carry the reasoning a contributor needs (CONTRIBUTING.md).
