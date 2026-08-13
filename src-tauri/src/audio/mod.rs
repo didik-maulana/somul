@@ -152,19 +152,6 @@ pub struct PlatformCapabilities {
     /// Rendered verbatim by the UI in place of the session list. Populated whenever a per-app
     /// capability is missing, so the panel can explain the limit instead of showing dead controls.
     pub unsupported_reason: Option<String>,
-    /// The platform can do per-app volume, but the OS has not granted the permission it needs.
-    ///
-    /// Distinct from an absent capability: nothing is missing except the user's consent, and the
-    /// panel can offer the one action that fixes it rather than a dead end. Never true on a
-    /// platform that could not do per-app volume in the first place.
-    pub needs_audio_permission: bool,
-    /// The permission has been asked for again since, and the answer has not changed.
-    ///
-    /// Only ever true alongside [`Self::needs_audio_permission`]. It separates a grant that has
-    /// simply not landed yet from one this process will never see: macOS settles audio capture
-    /// once per process, so a permission granted after launch needs a new one. The panel offers
-    /// waiting for the first and a relaunch for the second.
-    pub has_exhausted_capture_retries: bool,
 }
 
 impl PlatformCapabilities {
@@ -177,27 +164,6 @@ impl PlatformCapabilities {
             has_per_app_meter: true,
             has_per_app_routing: false,
             unsupported_reason: None,
-            needs_audio_permission: false,
-            has_exhausted_capture_retries: false,
-        }
-    }
-
-    /// Per-app volume is available and switched off by the OS until the user consents.
-    ///
-    /// The capability flags stay true. Nothing about the platform changed; a checkbox did, and
-    /// reporting the platform as incapable would send the user looking for the wrong fix.
-    ///
-    /// `has_exhausted_capture_retries` is what the panel branches on to decide whether it can
-    /// still promise that waiting will do it.
-    pub fn awaiting_audio_permission(
-        reason: impl Into<String>,
-        has_exhausted_capture_retries: bool,
-    ) -> Self {
-        Self {
-            unsupported_reason: Some(reason.into()),
-            needs_audio_permission: true,
-            has_exhausted_capture_retries,
-            ..Self::full_per_app()
         }
     }
 
@@ -210,8 +176,6 @@ impl PlatformCapabilities {
             has_per_app_meter: false,
             has_per_app_routing: false,
             unsupported_reason: Some(reason.into()),
-            needs_audio_permission: false,
-            has_exhausted_capture_retries: false,
         }
     }
 }
@@ -457,8 +421,6 @@ mod tests {
             has_per_app_meter: false,
             has_per_app_routing: false,
             unsupported_reason: Some("macOS exposes master volume only in v1".to_owned()),
-            needs_audio_permission: false,
-            has_exhausted_capture_retries: false,
         };
 
         let json = serde_json::to_value(&capabilities).expect("capabilities must serialize");
@@ -471,7 +433,5 @@ mod tests {
             json["unsupportedReason"],
             "macOS exposes master volume only in v1"
         );
-        assert_eq!(json["needsAudioPermission"], false);
-        assert_eq!(json["hasExhaustedCaptureRetries"], false);
     }
 }

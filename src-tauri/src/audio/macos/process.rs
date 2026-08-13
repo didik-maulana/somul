@@ -314,6 +314,15 @@ pub(super) fn playing_applications() -> Result<Vec<ProcessSession>, AudioError> 
             continue;
         }
 
+        // No bundle identifier, no row. Settings memory is keyed by this string, so a process
+        // without one cannot have its level remembered, and the panel would carry an anonymous
+        // slider the user has no way to recognise — an Android emulator holding an output stream
+        // it never uses is the case that surfaced this. The contract suite agrees: a session with
+        // an empty process name fails it outright.
+        if bundle_id.trim().is_empty() {
+            continue;
+        }
+
         let candidate = ProcessSession {
             objects: vec![object],
             pid: owner_pid,

@@ -61,22 +61,6 @@ export interface PlatformCapabilities {
   hasPerAppRouting: boolean;
   /** Rendered verbatim by the UI in place of the session list. */
   unsupportedReason: string | null;
-  /**
-   * Per-app volume works on this platform, but the OS has not granted the access it needs.
-   *
-   * Distinct from an absent capability: the panel offers the permission instead of listing apps
-   * whose sliders would move nothing.
-   */
-  needsAudioPermission: boolean;
-  /**
-   * The permission has been asked for again since, and the answer has not changed.
-   *
-   * Only ever true alongside {@link needsAudioPermission}. It separates a grant that has simply
-   * not landed yet from one this process will never see: macOS settles audio capture once per
-   * process, so a permission granted after launch needs a new one. The panel offers waiting for
-   * the first and a relaunch for the second.
-   */
-  hasExhaustedCaptureRetries: boolean;
 }
 
 export type AudioErrorKind =

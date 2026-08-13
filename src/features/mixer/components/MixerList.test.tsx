@@ -9,8 +9,6 @@ const fullPerApp: PlatformCapabilities = {
   hasPerAppVolume: true,
   hasPerAppMute: true,
   hasPerAppMeter: true,
-  needsAudioPermission: false,
-  hasExhaustedCaptureRetries: false,
   hasPerAppRouting: false,
   unsupportedReason: null,
 };
@@ -19,8 +17,6 @@ const masterOnly: PlatformCapabilities = {
   hasPerAppVolume: false,
   hasPerAppMute: false,
   hasPerAppMeter: false,
-  needsAudioPermission: false,
-  hasExhaustedCaptureRetries: false,
   hasPerAppRouting: false,
   unsupportedReason: 'macOS exposes master volume only in v1.',
 };
@@ -47,7 +43,7 @@ const renderList = (overrides: Partial<Parameters<typeof MixerList>[0]> = {}) =>
       onVolumeCommit={vi.fn()}
       onMuteToggle={vi.fn()}
       onRefresh={vi.fn()}
-      audioPermission={{ phase: 'unrequested', openSettings: vi.fn(), relaunch: vi.fn() }}
+      onOpenAudioPermission={vi.fn()}
       {...overrides}
     />,
   );
@@ -91,6 +87,22 @@ describe('MixerList', () => {
     expect(userAgent).not.toHaveBeenCalled();
   });
 
+  /**
+   * The permission cannot be detected without accusing users who already granted it, so the empty
+   * panel offers the door rather than a diagnosis — at the moment someone notices the list is
+   * emptier than it should be.
+   */
+  it('offers a way to the audio permission from the empty panel', async () => {
+    const onOpenAudioPermission = vi.fn();
+    const user = userEvent.setup();
+
+    renderList({ sessions: [], onOpenAudioPermission });
+
+    await user.click(screen.getByRole('button', { name: /check permission/i }));
+
+    expect(onOpenAudioPermission).toHaveBeenCalledOnce();
+  });
+
   it('offers an empty state with refresh when the platform is capable but silent', () => {
     const onRefresh = vi.fn();
 
@@ -118,86 +130,5 @@ describe('MixerList', () => {
     renderList({ draggingSessionIds: new Set(['mock:s:1' as SessionId]) });
 
     expect(screen.getByTestId('app-audio-row')).toHaveAttribute('data-dragging', 'true');
-  });
-
-  /**
-   * Rows would all be uncontrollable until the permission lands, and the list would also be
-   * wrong: without capture there is no way to tell an app that is playing from one that merely
-   * holds an output stream open.
-   */
-  describe('while audio capture is not granted', () => {
-    const awaitingPermission: PlatformCapabilities = {
-      ...fullPerApp,
-      needsAudioPermission: true,
-      unsupportedReason: 'Somul has not heard any app audio yet.',
-    };
-
-    it('offers the permission instead of the session list', () => {
-      renderList({ capabilities: awaitingPermission });
-
-      expect(screen.getByText('Allow Somul to hear your apps')).toBeInTheDocument();
-      expect(screen.queryByTestId('app-audio-row')).not.toBeInTheDocument();
-    });
-
-    it('renders the backend reason verbatim', () => {
-      renderList({ capabilities: awaitingPermission });
-
-      expect(screen.getByText('Somul has not heard any app audio yet.')).toBeInTheDocument();
-    });
-
-    /** A notice with no way to act on it reads as a dead end, and a dead end reads as a bug. */
-    it('opens the settings pane on request', async () => {
-      const user = userEvent.setup();
-      const openSettings = vi.fn();
-
-      renderList({
-        capabilities: awaitingPermission,
-        audioPermission: { phase: 'unrequested', openSettings, relaunch: vi.fn() },
-      });
-      await user.click(screen.getByRole('button', { name: /open privacy settings/i }));
-
-      expect(openSettings).toHaveBeenCalledOnce();
-    });
-
-    it('says the grant is still being waited on once settings have been opened', () => {
-      renderList({
-        capabilities: awaitingPermission,
-        audioPermission: { phase: 'awaiting', openSettings: vi.fn(), relaunch: vi.fn() },
-      });
-
-      expect(screen.getByText('Waiting for macOS')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /relaunch somul/i })).not.toBeInTheDocument();
-    });
-
-    /**
-     * The whole point of the phase. Retrying is all a running process can do, and once that is
-     * spent the panel has to stop showing the button the user has already pressed.
-     */
-    it('offers a relaunch once retrying has stopped helping', async () => {
-      const user = userEvent.setup();
-      const relaunch = vi.fn();
-
-      renderList({
-        capabilities: { ...awaitingPermission, hasExhaustedCaptureRetries: true },
-        audioPermission: { phase: 'relaunchRequired', openSettings: vi.fn(), relaunch },
-      });
-      await user.click(screen.getByRole('button', { name: /relaunch somul/i }));
-
-      expect(relaunch).toHaveBeenCalledOnce();
-    });
-
-    /** For the user the relaunch offer guesses wrong about: they never ticked the box. */
-    it('keeps a way back to the settings pane alongside the relaunch', async () => {
-      const user = userEvent.setup();
-      const openSettings = vi.fn();
-
-      renderList({
-        capabilities: { ...awaitingPermission, hasExhaustedCaptureRetries: true },
-        audioPermission: { phase: 'relaunchRequired', openSettings, relaunch: vi.fn() },
-      });
-      await user.click(screen.getByRole('button', { name: /open privacy settings/i }));
-
-      expect(openSettings).toHaveBeenCalledOnce();
-    });
   });
 });

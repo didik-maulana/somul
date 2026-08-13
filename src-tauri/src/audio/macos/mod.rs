@@ -14,6 +14,7 @@
 //! The master path below predates all of this and is untouched by it: it drives the default
 //! output device directly and works with no permission at all.
 
+mod capture;
 mod engine;
 mod icon;
 mod process;
@@ -56,12 +57,8 @@ pub const UNSUPPORTED_REASON: &str = "Somul could not open the per-app audio tap
 for individual app volume. Check that Somul is allowed to capture audio in System Settings › \
 Privacy & Security, then reopen the panel.";
 
-/// Shown when the taps are up and have heard nothing at all.
-///
 /// Describes what was observed rather than asserting a denial, because a user whose apps are
 /// merely paused lands here too, and telling them their permission is broken would be a lie.
-const WITHHELD_REASON: &str = "Somul has not heard any app audio yet. macOS only lets an app capture other apps' audio once you allow it, and per-app volume needs that access.";
-
 const PER_APP_ROUTING_REASON: &str = "Per-app output routing is not available on macOS in v1.";
 
 /// The macOS that introduced `AudioHardwareCreateProcessTap`. Below it there is no per-app path
@@ -104,11 +101,15 @@ impl MacOsAudioBackend {
         // An app that holds an output stream open without ever playing through it is not a mixer
         // row: `IsRunningOutput` is true for anything with an open stream, which is how a dev tool
         // that opened an audio context at launch acquired a slider of its own.
-        let has_heard_anything = self.engine.has_heard_anything();
-
+        //
+        // Heard, always — with no exception for "we have not heard anything yet". That exception
+        // existed to avoid an empty panel, and bought it at the price of listing every editor,
+        // emulator and paused player that happened to hold a speaker open. An empty panel saying
+        // nothing is playing is the truthful answer on a quiet Mac, and it is also the common one:
+        // a mixer is opened to change something that is making noise.
         Ok(processes
             .iter()
-            .filter(|found| !has_heard_anything || self.engine.is_audible(&found.identifier()))
+            .filter(|found| self.engine.is_audible(&found.identifier()))
             .map(|found| {
                 let key = found.identifier();
                 let control = self.engine.control(&key);
@@ -515,34 +516,24 @@ instead.",
         // Answered from the last sync rather than a fresh enumeration. The meter loop asks this
         // every tick so it can notice the answer changing, and enumerating here would double the
         // per-tick CoreAudio work to re-derive something the engine already knows.
-        if !self.engine.has_processes() {
-            // No app with audio is open, so nothing is tapped, and there is no evidence either
-            // way. The capable answer is right: the empty state that follows says no apps are
-            // open, which is true, where the unsupported notice would be a false accusation.
-            return PlatformCapabilities::full_per_app();
-        }
+        //
+        // The verdict itself is decided in `capture::decide`, away from CoreAudio, so the rules
+        // can be read and tested without a Mac that happens to be playing something.
+        let facts = capture::CaptureFacts {
+            has_proven_capture: self.engine.has_proven_capture(),
+            has_processes: self.engine.has_processes(),
+            has_taps: self.engine.has_taps(),
+        };
 
-        // Tapped, and silent for long enough that the permission is the likely reason. The panel
-        // trades the list for the one action that fixes it: rows the user cannot control are
-        // worse than no rows, because each one looks like a bug of its own.
-        if self.engine.is_capture_withheld() {
-            return PlatformCapabilities::awaiting_audio_permission(
-                WITHHELD_REASON,
-                self.engine.has_exhausted_capture_retries(),
-            );
+        match capture::decide(facts) {
+            capture::CaptureVerdict::Capable => PlatformCapabilities::full_per_app(),
+            // Apps are open and not one of them could be tapped, with the permission in hand.
+            // Something other than consent is wrong, so the panel does not send the user to a
+            // settings pane that cannot help them.
+            capture::CaptureVerdict::Unsupported => {
+                PlatformCapabilities::master_only(UNSUPPORTED_REASON)
+            }
         }
-
-        // A tap that exists is the evidence, not a tap that is already carrying gain. Taps start
-        // out listening and are promoted once they have heard their app, so judging on a live
-        // session alone would report the platform as incapable for the first few frames of every
-        // session and then change its mind.
-        if self.engine.has_taps() {
-            return PlatformCapabilities::full_per_app();
-        }
-
-        // Apps are open and not one of them could be tapped. That is the permission being
-        // withheld, and the panel must explain it rather than list dead sliders.
-        PlatformCapabilities::master_only(UNSUPPORTED_REASON)
     }
 
     fn list_sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
@@ -681,13 +672,11 @@ instead.",
 
         // The same visibility rule the session list runs. A batch covering a row the panel does
         // not show would disagree with the list, and the contract pairs the two by key.
-        let has_heard_anything = self.engine.has_heard_anything();
-
         Ok(self
             .engine
             .peaks()
             .into_iter()
-            .filter(|(key, _)| !has_heard_anything || self.engine.is_audible(key))
+            .filter(|(key, _)| self.engine.is_audible(key))
             .filter_map(|(key, peak)| {
                 Some(SessionPeak {
                     session_id: SessionId::from_backend_identifier(&key).ok()?,

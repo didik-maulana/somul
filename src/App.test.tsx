@@ -49,7 +49,6 @@ vi.mock('@/lib/ipc', () => ({
       hasPerAppMute: false,
       hasPerAppMeter: false,
       hasPerAppRouting: false,
-      needsAudioPermission: false,
       unsupportedReason: 'macOS exposes master volume only.',
     }),
   getAudioSessions: () => Promise.resolve([]),

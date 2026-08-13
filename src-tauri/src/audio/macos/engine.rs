@@ -211,7 +211,11 @@ pub(super) fn is_diagnosing() -> bool {
 /// working. Rebuilding passthrough taps is inaudible, so the only cost is the CoreAudio calls.
 const CAPTURE_RETRY: Duration = Duration::from_secs(3);
 
-/// How many rebuilds may come back silent before retrying stops being a plausible fix.
+/// How many rebuilds may come back silent before Somul stops re-asking macOS.
+///
+/// The bound is the whole point. Every rebuild puts the capture question to macOS again, and on a
+/// build whose signature cannot hold a grant that means a fresh prompt each time — one every three
+/// seconds, for as long as the panel is open.
 ///
 /// Past this, a grant made while Somul was running would already have been picked up, and what is
 /// left is the case no rebuild can reach: macOS settles the capture question once per process, so
@@ -474,29 +478,12 @@ impl TapEngine {
         Ok(())
     }
 
-    /// Whether the taps have been listening in silence for long enough to blame the permission.
+    /// Whether capture has ever worked, here or on an earlier run of this Mac.
     ///
-    /// An unauthorised tap is indistinguishable from a genuinely quiet app for as long as the app
-    /// stays quiet: both deliver zero. Time is the only thing that separates them, so the verdict
-    /// waits [`SILENCE_VERDICT`] and is withdrawn the instant a single sample arrives. A user
-    /// whose apps are merely paused sees the notice too, which is why it says what it observed
-    /// rather than accusing the permission outright.
-    pub fn is_capture_withheld(&self) -> bool {
-        // Known-granted machines are never accused. Once capture has worked here, silence means
-        // nothing is playing, which is a different empty state with a different answer.
-        if self.has_proven_capture.load(Ordering::Relaxed) || capture_ever_proven() {
-            return false;
-        }
-
-        let state = self.lock();
-
-        if state.slots.is_empty() {
-            return false;
-        }
-
-        state
-            .silent_since
-            .is_some_and(|since| since.elapsed() >= SILENCE_VERDICT)
+    /// Outranks anything macOS reports now: a tap that delivered audio is proof, where an
+    /// authorization answer is only a claim about what should happen next.
+    pub fn has_proven_capture(&self) -> bool {
+        self.has_proven_capture.load(Ordering::Relaxed) || capture_ever_proven()
     }
 
     /// Hands the apps back when a set that started muted on the marker's word hears nothing.
@@ -563,6 +550,15 @@ impl TapEngine {
             return Ok(());
         }
 
+        // Stop once the budget is spent. Every rebuild puts the capture question to macOS again,
+        // and on a build whose signature cannot hold a grant — an ad-hoc one, which is what an
+        // unsigned download is — macOS answers each question with a fresh prompt. Left unbounded
+        // this asked every three seconds for as long as the panel was open, which is not a
+        // permission flow but a machine arguing with its user.
+        if state.capture_retries >= CAPTURE_RETRIES_BEFORE_RELAUNCH {
+            return Ok(());
+        }
+
         let processes = state.processes.clone();
 
         diagnose!("still silent, asking macOS for capture again");
@@ -579,30 +575,6 @@ impl TapEngine {
         outcome
     }
 
-    /// Whether asking macOS again has stopped being worth offering.
-    ///
-    /// True once the retries have run out with nothing heard. The panel uses it to swap "waiting
-    /// for the permission" for the one thing a running process cannot do for itself — start a new
-    /// one that macOS will answer afresh.
-    ///
-    /// Scoped to a withheld capture by the caller: on its own this says only that rebuilds have
-    /// happened, which is also true of a Mac where nothing has been playing.
-    pub fn has_exhausted_capture_retries(&self) -> bool {
-        self.lock().capture_retries >= CAPTURE_RETRIES_BEFORE_RELAUNCH
-    }
-
-    /// Whether any tap has ever delivered audio.
-    ///
-    /// The panel hides apps that have never been heard, and this is the guard that keeps it from
-    /// hiding all of them: until something has been heard there is no evidence to hide anything
-    /// on, and an empty panel would be a worse answer than a slightly generous one.
-    pub fn has_heard_anything(&self) -> bool {
-        // On a machine where capture is known to work, an app that has not been heard is simply
-        // not playing - a text editor holding an output stream open, which is not a mixer row.
-        // The evidence is good enough to hide it without waiting to hear something else first.
-        capture_ever_proven() || self.lock().slots.iter().any(|slot| slot.control.has_signal())
-    }
-
     /// Whether this key belongs in the panel: it has been heard.
     ///
     /// Being heard is the only thing that separates an app playing audio from a text editor that
@@ -615,7 +587,8 @@ impl TapEngine {
     /// control it either way, and a row that cannot be controlled is not worth the confusion of
     /// listing every app that merely holds a speaker open.
     ///
-    /// Only consulted once something has been heard at all - see `has_heard_anything`.
+    /// The only test a row has to pass. There used to be an exception — list everything until
+    /// something has been heard — and it is what put emulators and text editors in the mixer.
     pub fn is_audible(&self, key: &str) -> bool {
         self.control(key)
             .is_some_and(|control| control.has_signal())
@@ -1174,7 +1147,6 @@ unsafe fn mix(
 
     let frames = input_frames.min(output_frames);
 
-
     if outputs.len == 0 || frames == 0 {
         return;
     }
@@ -1213,7 +1185,6 @@ unsafe fn mix(
         control.observe(peak);
     }
 }
-
 
 #[cfg(test)]
 mod tests {

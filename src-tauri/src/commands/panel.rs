@@ -73,12 +73,10 @@ pub fn open_audio_permission_settings() -> Result<(), crate::audio::AudioError> 
     Ok(())
 }
 
-/// Restarts Somul so an audio-capture permission granted since launch can take effect.
+/// Restarts Somul into a new process.
 ///
-/// The engine already rebuilds its taps to re-ask macOS, and that is enough for most of what can
-/// go wrong. It cannot reach this case: macOS settles the capture question once per process, so a
-/// grant that lands while Somul is running is invisible to every tap this process will ever
-/// create. A new process is the only thing that gets a fresh answer.
+/// The updater's "Restart now": an installed update sits on disk while the old build keeps
+/// running, and only a new process picks it up.
 ///
 /// The single-instance lock is released first. It is held for the lifetime of the process, and
 /// the replacement starts while this one is still exiting — it would find the lock taken, hand its

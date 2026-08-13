@@ -226,20 +226,19 @@ export const onUpdateProgress = (
     onEvent(payload);
   });
 
-/** Opens the Privacy & Security pane where macOS grants audio capture. */
-export const openAudioPermissionSettings = (): Promise<void> =>
-  mutation('open_audio_permission_settings');
-
 /**
  * Restarts Somul into a new process.
  *
- * The one fix for a capture permission granted after launch: macOS settles that question once per
- * process, so no amount of retrying inside this one will see it.
+ * The updater's "Restart now": an installed update sits on disk while the old build keeps running.
  *
  * Settles only when the restart failed — a successful one replaces the running process, taking
  * the promise with it. Treat a resolution as "nothing happened".
  */
 export const relaunchApp = (): Promise<void> => mutation('relaunch_app');
+
+/** Opens the Privacy & Security pane where macOS grants audio capture. */
+export const openAudioPermissionSettings = (): Promise<void> =>
+  mutation('open_audio_permission_settings');
 
 /** Fires every time the tray puts the panel on screen. */
 export const PANEL_SHOWN_EVENT = 'panel://shown';

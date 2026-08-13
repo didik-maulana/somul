@@ -10,12 +10,12 @@ import { useOutputDevices } from "@/features/master/hooks/useOutputDevices";
 import { MixerList } from "@/features/mixer/components/MixerList";
 import { SettingsView } from "@/features/settings/components/SettingsView";
 import { useSettings } from "@/features/settings/hooks/useSettings";
-import { useAudioPermissionFlow } from "@/features/mixer/hooks/useAudioPermissionFlow";
 import { useAudioSessions } from "@/features/mixer/hooks/useAudioSessions";
 import { useVolumeCommit } from "@/features/mixer/hooks/useVolumeCommit";
 import { UpdateNotice } from "@/features/update/components/UpdateNotice";
 import { useUpdate } from "@/features/update/hooks/useUpdate";
 import { DEFAULT_HOTKEY } from "@/lib/accelerator";
+import { openAudioPermissionSettings } from "@/lib/ipc";
 import { useAudioStore } from "@/stores/audioStore";
 import type { AudioSession } from "@/types/ipc";
 
@@ -35,7 +35,6 @@ export const App: FC = () => {
   const draggingSessionIds = useAudioStore((state) => state.draggingSessionIds);
   const isDraggingMaster = useAudioStore((state) => state.isDraggingMaster);
   const capabilities = useAudioStore((state) => state.capabilities);
-  const audioPermission = useAudioPermissionFlow(capabilities);
 
   const sessionCommit = useVolumeCommit(
     useCallback(
@@ -150,6 +149,9 @@ export const App: FC = () => {
             hotkeyWarning={settings.hotkeyWarning}
             updateStatus={update.status}
             onSettingsChange={settings.change}
+            onOpenAudioPermission={() => {
+              void openAudioPermissionSettings();
+            }}
             onUpdateCheck={update.check}
             onUpdateInstall={update.install}
             onUpdateRestart={update.restart}
@@ -168,7 +170,9 @@ export const App: FC = () => {
               void sessions.toggleMute(session);
             }}
             onRefresh={sessions.refresh}
-            audioPermission={audioPermission}
+            onOpenAudioPermission={() => {
+              void openAudioPermissionSettings();
+            }}
           />
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useState, type FC, type ReactNode } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -15,6 +15,7 @@ export interface SettingsViewProps {
   hotkeyWarning: string | null;
   updateStatus: UpdateStatus;
   onSettingsChange: (settings: AppSettings) => void;
+  onOpenAudioPermission: () => void;
   onUpdateCheck: () => void;
   onUpdateInstall: () => void;
   onUpdateRestart: () => void;
@@ -40,6 +41,7 @@ export const SettingsView: FC<SettingsViewProps> = ({
   hotkeyWarning,
   updateStatus,
   onSettingsChange,
+  onOpenAudioPermission,
   onUpdateCheck,
   onUpdateInstall,
   onUpdateRestart,
@@ -108,6 +110,31 @@ export const SettingsView: FC<SettingsViewProps> = ({
               onSettingsChange({ ...settings, shouldLaunchAtLogin });
             }}
           />
+        </Row>
+
+        {/* Always here, whatever the permission currently is.
+            
+            Somul cannot tell a withheld permission from a Mac where nothing happens to be playing:
+            macOS reports an app as running output when it merely holds an output stream open, so
+            an emulator and a silenced app look identical to one Somul is being refused. Every
+            attempt to guess ended up accusing users whose permission was already granted.
+            
+            So the panel stops guessing and leaves a door instead. A row that claims nothing cannot
+            be wrong, and it is where someone looks when per-app sliders never appear. */}
+        <Row
+          label="Audio permission"
+          hint="Per-app mixing needs macOS's audio-capture permission"
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            size="xs"
+            className="shrink-0 transition-transform active:scale-95"
+            onClick={onOpenAudioPermission}
+          >
+            <ShieldCheck size={12} strokeWidth={2} aria-hidden="true" />
+            Open Settings
+          </Button>
         </Row>
 
         {/* Somul ships outside the App Store, so this row is the only way a user ever moves off

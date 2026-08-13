@@ -29,6 +29,7 @@ const settings: AppSettings = {
 
 const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {}) => {
   const onSettingsChange = vi.fn();
+  const onOpenAudioPermission = vi.fn();
   const onUpdateCheck = vi.fn();
   const onUpdateInstall = vi.fn();
   const onUpdateRestart = vi.fn();
@@ -40,6 +41,7 @@ const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {})
       hotkeyWarning={null}
       updateStatus={upToDate}
       onSettingsChange={onSettingsChange}
+      onOpenAudioPermission={onOpenAudioPermission}
       onUpdateCheck={onUpdateCheck}
       onUpdateInstall={onUpdateInstall}
       onUpdateRestart={onUpdateRestart}
@@ -50,6 +52,7 @@ const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {})
 
   return {
     onSettingsChange,
+    onOpenAudioPermission,
     onUpdateCheck,
     onUpdateInstall,
     onUpdateRestart,
@@ -117,6 +120,7 @@ describe('SettingsView', () => {
         hotkeyWarning={null}
         updateStatus={upToDate}
         onSettingsChange={vi.fn()}
+        onOpenAudioPermission={vi.fn()}
         onUpdateCheck={vi.fn()}
         onUpdateInstall={vi.fn()}
         onUpdateRestart={vi.fn()}
@@ -132,6 +136,7 @@ describe('SettingsView', () => {
         hotkeyWarning={null}
         updateStatus={upToDate}
         onSettingsChange={vi.fn()}
+        onOpenAudioPermission={vi.fn()}
         onUpdateCheck={vi.fn()}
         onUpdateInstall={vi.fn()}
         onUpdateRestart={vi.fn()}
@@ -220,6 +225,22 @@ describe('SettingsView', () => {
     await user.click(screen.getByRole('button', { name: 'Restart to finish the update' }));
 
     expect(onUpdateRestart).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * The one affordance left for a withheld permission. Somul cannot detect that state without
+   * accusing users who have already granted it, so the door is always here and claims nothing.
+   */
+  it('always offers a way to the audio permission, whatever the state', async () => {
+    const { onOpenAudioPermission, user } = renderView();
+
+    expect(
+      screen.getByText("Per-app mixing needs macOS's audio-capture permission"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Open Settings' }));
+
+    expect(onOpenAudioPermission).toHaveBeenCalledOnce();
   });
 
   it('closes back to the mixer', async () => {

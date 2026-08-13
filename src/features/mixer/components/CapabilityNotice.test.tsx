@@ -10,8 +10,6 @@ const masterOnly = (reason: string | null): PlatformCapabilities => ({
   hasPerAppVolume: false,
   hasPerAppMute: false,
   hasPerAppMeter: false,
-  needsAudioPermission: false,
-  hasExhaustedCaptureRetries: false,
   hasPerAppRouting: false,
   unsupportedReason: reason,
 });

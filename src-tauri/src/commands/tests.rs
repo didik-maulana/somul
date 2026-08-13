@@ -105,9 +105,8 @@ fn every_v1_command_is_registered_and_reachable_by_name() {
             json!({ "sessionId": session_id, "deviceId": "mock:headphones" }),
         ),
         ("set_panel_visibility", json!({ "isVisible": true })),
-        // Reachable here because the restart itself is compiled out under `cfg(test)`. What is
-        // being checked is registration and argument decoding; the real body would replace the
-        // process running the suite.
+        // Reachable because the restart itself is compiled out under `cfg(test)`. What is being
+        // checked is registration and argument decoding; the real body replaces the process.
         ("relaunch_app", json!({})),
         // The two settings commands are absent on purpose. They need the store plugin, and
         // giving the mock app a real store would have the suite reading and writing a
