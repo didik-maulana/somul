@@ -13,10 +13,19 @@ export const SITE = {
   tagline: "Per-app volume, right in your menu bar.",
   description:
     "Somul is an ultra-light per-application audio mixer for macOS. Pull Spotify down without touching Zoom. Nothing leaves your machine.",
-  version: "1.1.0",
+  version: "0.1.0",
   repo: "https://github.com/didik-maulana/somul",
-  download: "https://github.com/didik-maulana/somul/releases/latest",
-  requirement: "macOS 14.4+ · Apple Silicon & Intel · 6 MB",
+  // Points at a stable asset name rather than a versioned one. GitHub resolves
+  // `releases/latest/download/<name>` to whatever the newest release published under that exact
+  // name, so `Somul_0.1.0_universal.dmg` would break this link the day 0.2.0 ships. Every release
+  // therefore carries a `Somul.dmg` alias alongside the versioned file.
+  //
+  // The override exists for testing the site against a build that is not published yet — point it
+  // at a local file and the button serves that instead.
+  download:
+    process.env.NEXT_PUBLIC_DOWNLOAD_URL ??
+    "https://github.com/didik-maulana/somul/releases/latest/download/Somul.dmg",
+  requirement: "macOS 14.4+ · Apple Silicon & Intel · 11 MB",
 } as const;
 
 export const NAV_LINKS: NavLink[] = [

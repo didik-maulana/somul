@@ -6,3 +6,6 @@ next-env.d.ts
 .DS_Store
 .env*.local
 .vercel
+
+# Build artefact copied in for local or tunnel testing. 11 MB has no business in git.
+public/*.dmg
