@@ -3,14 +3,8 @@
 import type React from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { cn } from "@/lib/cn";
+import { FLOW_NODES } from "@/content/site";
 import { springSoft } from "@/lib/motion";
-
-const NODES = [
-  { id: "app", label: "App output stream", hint: "Spotify, Zoom, a game" },
-  { id: "tap", label: "Core Audio process tap", hint: "Aggregate device owned by Somul" },
-  { id: "gain", label: "Gain in the render callback", hint: "Sample-by-sample, realtime thread" },
-  { id: "out", label: "Your speakers", hint: "Unchanged device, unchanged latency" },
-];
 
 interface SignalFlowProps {
   activeIndex: number;
@@ -20,8 +14,12 @@ export const SignalFlow: React.FC<SignalFlowProps> = ({ activeIndex }) => {
   const reduceMotion = useReducedMotion();
 
   return (
-    <div className="relative flex flex-col gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.02] p-6">
-      {NODES.map((node, index) => {
+    <div className="flex w-full max-w-[420px] flex-col gap-3 rounded-2xl border border-line-soft bg-surface-1 p-6">
+      <span className="px-0.5 pb-1 font-mono text-[11px] tracking-[0.16em] text-ink-500">
+        WHERE THE SOUND GOES
+      </span>
+
+      {FLOW_NODES.map((node, index) => {
         const isActive = index <= activeIndex + 1;
         const isCurrent = index === activeIndex + 1;
 
@@ -37,7 +35,7 @@ export const SignalFlow: React.FC<SignalFlowProps> = ({ activeIndex }) => {
                 backgroundColor: isCurrent ? "rgba(66,116,217,0.08)" : "rgba(255,255,255,0.015)",
               }}
               transition={springSoft}
-              className="rounded-xl border px-4 py-3"
+              className="flex flex-col gap-1 rounded-xl border px-4 py-3"
             >
               <div className="flex items-center justify-between gap-3">
                 <span
@@ -57,7 +55,7 @@ export const SignalFlow: React.FC<SignalFlowProps> = ({ activeIndex }) => {
               </div>
               <p
                 className={cn(
-                  "mt-1 font-mono text-[11px] tracking-[0.04em] transition-colors duration-200",
+                  "font-mono text-[11px] tracking-[0.04em] transition-colors duration-200",
                   isActive ? "text-ink-500" : "text-ink-700",
                 )}
               >
@@ -65,8 +63,8 @@ export const SignalFlow: React.FC<SignalFlowProps> = ({ activeIndex }) => {
               </p>
             </motion.div>
 
-            {index < NODES.length - 1 ? (
-              <div className="relative mx-auto h-6 w-px overflow-hidden bg-white/[0.08]">
+            {index < FLOW_NODES.length - 1 ? (
+              <div className="relative mx-auto h-6 w-px overflow-hidden bg-hairline">
                 <motion.span
                   className="absolute inset-x-0 h-3 bg-gradient-to-b from-transparent via-brand-400 to-transparent"
                   initial={{ y: -12 }}

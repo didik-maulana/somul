@@ -1,153 +1,175 @@
 import type {
+  Callout,
   DemoApp,
+  FaqEntry,
   Feature,
+  FlowNode,
+  MiniMixerRow,
   NavLink,
-  PlatformRow,
-  PrivacyStat,
+  PrivacyFact,
   Step,
 } from "@/content/types";
 
 export const SITE = {
   name: "Somul",
-  expansion: "Sound Multiplexer",
   tagline: "Per-app volume, right in your menu bar.",
-  description:
-    "Somul is an ultra-light per-application audio mixer for macOS. Pull Spotify down without touching Zoom. Nothing leaves your machine.",
+  description: "Every app making noise gets its own slider, right in your menu bar.",
   version: "0.1.0",
+  year: 2026,
   repo: "https://github.com/didik-maulana/somul",
-  // Points at a stable asset name rather than a versioned one. GitHub resolves
-  // `releases/latest/download/<name>` to whatever the newest release published under that exact
-  // name, so `Somul_0.1.0_universal.dmg` would break this link the day 0.2.0 ships. Every release
-  // therefore carries a `Somul.dmg` alias alongside the versioned file.
-  //
-  // The override exists for testing the site against a build that is not published yet — point it
-  // at a local file and the button serves that instead.
   download:
     process.env.NEXT_PUBLIC_DOWNLOAD_URL ??
     "https://github.com/didik-maulana/somul/releases/latest/download/Somul.dmg",
-  requirement: "macOS 14.4+ · Apple Silicon & Intel · 11 MB",
+  requirement: "macOS 14.4+ · Universal binary",
+  quarantineCommand: "xattr -dr com.apple.quarantine /Applications/Somul.app",
+  hotkey: ["⌘", "⇧", "V"],
 } as const;
 
 export const NAV_LINKS: NavLink[] = [
   { label: "Mixer", href: "#mixer" },
   { label: "Features", href: "#features" },
   { label: "How it works", href: "#how" },
-  { label: "Platforms", href: "#platforms" },
   { label: "Privacy", href: "#privacy" },
+  { label: "FAQ", href: "#faq" },
 ];
 
+export const MASTER_DEVICE = "MacBook Pro Speakers";
+
+export const MASTER_VOLUME = 0.8;
+
 export const DEMO_APPS: DemoApp[] = [
-  { id: "spotify", name: "Spotify", accent: "#1db954", volume: 0.34, muted: false, activity: 0.9 },
-  { id: "chrome", name: "Chrome", accent: "#4274d9", volume: 0.72, muted: false, activity: 0.55 },
-  { id: "zoom", name: "Zoom", accent: "#95ccdd", volume: 1, muted: false, activity: 0.72 },
-  { id: "discord", name: "Discord", accent: "#8fafe8", volume: 0.55, muted: true, activity: 0.4 },
+  { id: "spotify", name: "Spotify", volume: 0.34, muted: false },
+  { id: "chrome", name: "Chrome", volume: 0.72, muted: false },
+  { id: "zoom", name: "Zoom", volume: 1, muted: false },
+  { id: "discord", name: "Discord", volume: 0.45, muted: true },
 ];
+
+export const SHOWCASE_CALLOUTS: Callout[] = [
+  {
+    id: "level",
+    title: "Every row shows its real level",
+    body: "Set Spotify to 34 percent and the number beside the fader reads 34%. No guessing where it landed.",
+  },
+  {
+    id: "mute",
+    title: "Mute without losing your place",
+    body: "The speaker icon silences one app and leaves its level untouched. Click it again and the app comes back exactly where it was.",
+  },
+  {
+    id: "local",
+    title: "No account, no telemetry",
+    body: "The only connection Somul makes is a signed update check at launch. Your levels stay in a settings file on your Mac, and installing a build is always a button you press.",
+  },
+];
+
+export const FEATURE_FADER: Feature = {
+  id: "fader",
+  icon: "SlidersVertical",
+  title: "One fader per app",
+  body: "Spotify, Chrome, Zoom, your game. Each one gets its own fader and its own mute. Move one and the rest stay where you left them.",
+};
+
+export const FEATURE_HOTKEY: Feature = {
+  id: "hotkey",
+  icon: "Command",
+  title: "One hotkey, from anywhere",
+  body: "The panel opens over full screen apps and games without stealing focus. Set your level, let go, and it is gone.",
+};
 
 export const FEATURES: Feature[] = [
   {
-    id: "sliders",
-    icon: "SlidersVertical",
-    title: "One slider per app",
-    body: "Spotify, Chrome, Zoom, Discord, your game — each gets its own fader and its own mute. Move one, the rest stay exactly where you left them.",
-    span: "wide",
-  },
-  {
     id: "tray",
     icon: "PanelTop",
-    title: "Tray-first, window-never",
-    body: "The panel drops out of the menu bar, does its job, and disappears. No dock icon, no window to manage.",
-  },
-  {
-    id: "meters",
-    icon: "AudioLines",
-    title: "Realtime peak meters",
-    body: "A 30 Hz meter per row, driven straight off the render callback — so you can see which app is actually making the noise.",
-  },
-  {
-    id: "hotkey",
-    icon: "Command",
-    title: "Global hotkey",
-    body: "⌘⇧V from anywhere. Full-screen apps included.",
+    title: "Lives in your menu bar",
+    body: "Click the icon, set your levels, click away. No dock icon, no window to manage.",
   },
   {
     id: "memory",
     icon: "Save",
-    title: "Remembers every app",
-    body: "Set Spotify to 30% once. It comes back at 30% next launch, and the launch after that.",
-  },
-  {
-    id: "private",
-    icon: "ShieldCheck",
-    title: "Local by construction",
-    body: "No account, no telemetry, no network calls beyond the update check you can switch off.",
-    span: "wide",
+    title: "Remembers your levels",
+    body: "Set Spotify to 30% once. It opens at 30% next time, and every time after that.",
   },
   {
     id: "master",
     icon: "Gauge",
-    title: "System output, same panel",
-    body: "The top row is the master volume, so you never bounce between Somul and Sound settings.",
+    title: "Master volume up top",
+    body: "The first row is your overall volume, so you never open Sound settings just to turn things down.",
   },
+];
+
+export const MINI_MIXER_ROWS: MiniMixerRow[] = [
+  { id: "spotify", label: "SPOTIFY", value: 34, tone: "brand" },
+  { id: "zoom", label: "ZOOM", value: 82, tone: "mint" },
+  { id: "chrome", label: "CHROME", value: 58, tone: "signal" },
 ];
 
 export const STEPS: Step[] = [
   {
-    id: "enumerate",
+    id: "notice",
     index: "01",
-    title: "Find what is playing",
-    body: "Core Audio is asked which processes hold an open output stream. Somul waits for sustained output before an app claims a row, so a one-off system chirp never takes over the panel.",
+    title: "It notices what is playing",
+    body: "Somul watches which apps are making sound and gives each one a row. Quiet apps stay out of the list until they speak up.",
   },
   {
-    id: "tap",
+    id: "pass",
     index: "02",
-    title: "Tap the process",
-    body: "macOS has no per-app volume API, so Somul installs a Core Audio process tap — the app's audio is routed through an aggregate device that Somul owns.",
+    title: "Sound passes through Somul",
+    body: "On its way out of the app, audio takes a short detour through Somul and carries on to your speakers. Your output device and sound settings stay exactly as they were.",
   },
   {
-    id: "scale",
+    id: "level",
     index: "03",
-    title: "Scale in the render callback",
-    body: "Gain is applied inside the realtime render path, sample by sample. Every tap starts in passthrough and only takes an app over once Somul has actually heard it.",
+    title: "Your fader sets the level",
+    body: "Move a fader and that app gets quieter the moment the sound passes through. Nothing else on your Mac changes.",
   },
 ];
 
-export const PLATFORMS: PlatformRow[] = [
-  {
-    id: "macos-current",
-    platform: "macOS 14.4+",
-    detail: "Core Audio process taps",
-    status: "shipping",
-    statusLabel: "Shipping",
-  },
-  {
-    id: "macos-legacy",
-    platform: "macOS ≤ 14.3",
-    detail: "Master volume and metering only — the tap API does not exist",
-    status: "partial",
-    statusLabel: "Partial",
-  },
-  {
-    id: "windows",
-    platform: "Windows 10 1803+",
-    detail: "Needs an AudioBackend over WASAPI ISimpleAudioVolume",
-    status: "next",
-    statusLabel: "Next",
-  },
-  {
-    id: "linux",
-    platform: "Linux · PipeWire / PulseAudio",
-    detail: "Also the only platform that can do native per-app routing",
-    status: "next",
-    statusLabel: "Next",
-  },
-];
-
-export const PRIVACY_STATS: PrivacyStat[] = [
-  { id: "telemetry", value: "0", label: "analytics events" },
-  { id: "accounts", value: "0", label: "accounts to create" },
-  { id: "cloud", value: "0", label: "cloud dependencies" },
-  { id: "audio", value: "0", label: "bytes of audio stored" },
+export const FLOW_NODES: FlowNode[] = [
+  { id: "app", label: "The app plays", hint: "SPOTIFY, ZOOM, A GAME" },
+  { id: "pass", label: "Somul takes a pass", hint: "AUDIO STREAM, NOT A RECORDING" },
+  { id: "fader", label: "Your fader is applied", hint: "INSTANT, PER APP" },
+  { id: "out", label: "Your speakers", hint: "SAME DEVICE, SAME LATENCY" },
 ];
 
 export const PRIVACY_NOTE =
-  "Per-app volume runs on Core Audio process taps, and a tap is audio capture — so macOS asks for the audio-recording permission. Somul reads those samples to draw a meter and to scale gain. They are never written to disk and never leave the process.";
+  "Somul changes an app's volume by tapping its audio stream. macOS counts every tap as recording, so it shows the microphone prompt. Somul reads each sample, moves the fader, and drops it.";
+
+export const PRIVACY_FACTS: PrivacyFact[] = [
+  { id: "disk", icon: "HardDrive", label: "Saved to disk", value: "Never", tone: "mint" },
+  { id: "network", icon: "Radio", label: "Sent anywhere", value: "Never", tone: "mint" },
+  {
+    id: "telemetry",
+    icon: "ChartNoAxesColumn",
+    label: "Analytics or telemetry",
+    value: "None",
+    tone: "mint",
+  },
+  { id: "account", icon: "User", label: "Account to sign in", value: "None", tone: "mint" },
+  { id: "update", icon: "RefreshCw", label: "Update check", value: "Optional", tone: "signal" },
+];
+
+export const FAQS: FaqEntry[] = [
+  {
+    id: "gatekeeper",
+    question: "Why does macOS say Somul can't be opened?",
+    answer:
+      "Somul isn't notarized by Apple yet, so Gatekeeper blocks it the first time you open it. The app isn't damaged. The first launch steps below clear the flag once, and macOS stops asking.",
+  },
+  {
+    id: "free",
+    question: "Is Somul really free?",
+    answer: "Yes. No account, no trial timer, no paid tier. Download it and it's yours.",
+  },
+  {
+    id: "system-volume",
+    question: "Does it change my Mac's system volume?",
+    answer:
+      "No. Your system volume stays exactly where you left it. Somul only moves the level of the app you point it at.",
+  },
+  {
+    id: "where",
+    question: "Where does Somul live once it's running?",
+    answer:
+      "In your menu bar. No Dock icon, no window to keep open. Click the icon, move a slider, close it.",
+  },
+];

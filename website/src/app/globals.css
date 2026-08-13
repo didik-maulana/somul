@@ -41,6 +41,13 @@
   --color-ink-900: #12151b;
   --color-ink-950: #0b0d12;
 
+  --color-surface-1: #ffffff05;
+  --color-surface-2: #ffffff08;
+  --color-surface-3: #ffffff0a;
+  --color-hairline: #ffffff14;
+  --color-line-soft: #ffffff12;
+  --color-line-faint: #ffffff0f;
+
   --font-sans: var(--font-inter), system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), "SF Mono", ui-monospace, monospace;
 
@@ -86,17 +93,6 @@
 }
 
 @layer components {
-  .hairline {
-    border: 1px solid color-mix(in srgb, #fff 8%, transparent);
-  }
-
-  .surface {
-    background: color-mix(in srgb, var(--color-ink-900) 72%, transparent);
-    backdrop-filter: blur(24px) saturate(140%);
-  }
-
-  /* The grid is drawn with a mask rather than a fade overlay so a section can sit on any
-     background without a visible seam where the overlay ends. */
   .grid-field {
     background-image:
       linear-gradient(to right, color-mix(in srgb, #fff 4%, transparent) 1px, transparent 1px),

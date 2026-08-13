@@ -2,31 +2,46 @@
 
 import type React from "react";
 import { motion } from "motion/react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Volume1, Volume2, VolumeX } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { springSnappy } from "@/lib/motion";
 
 interface MuteToggleProps {
   muted: boolean;
+  volume: number;
   label: string;
+  size?: number;
+  iconSize?: number;
   onToggle: () => void;
 }
 
-export const MuteToggle: React.FC<MuteToggleProps> = ({ muted, label, onToggle }) => (
-  <motion.button
-    type="button"
-    onClick={onToggle}
-    whileTap={{ scale: 0.88 }}
-    transition={springSnappy}
-    aria-pressed={muted}
-    aria-label={muted ? `Unmute ${label}` : `Mute ${label}`}
-    className={cn(
-      "flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors duration-150",
-      muted
-        ? "bg-white/[0.06] text-ink-400 hover:text-ink-200"
-        : "text-ink-300 hover:bg-white/[0.06] hover:text-white",
-    )}
-  >
-    {muted ? <VolumeX size={15} strokeWidth={1.8} /> : <Volume2 size={15} strokeWidth={1.8} />}
-  </motion.button>
-);
+const HALF_VOLUME = 0.5;
+
+export const MuteToggle: React.FC<MuteToggleProps> = ({
+  muted,
+  volume,
+  label,
+  size = 28,
+  iconSize = 16,
+  onToggle,
+}) => {
+  const Icon = muted ? VolumeX : volume < HALF_VOLUME ? Volume1 : Volume2;
+
+  return (
+    <motion.button
+      type="button"
+      onClick={onToggle}
+      whileTap={{ scale: 0.88 }}
+      transition={springSnappy}
+      aria-pressed={muted}
+      aria-label={muted ? `Unmute ${label}` : `Mute ${label}`}
+      style={{ width: size, height: size }}
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded transition-colors duration-150 hover:bg-white/6",
+        muted ? "text-[#E2696F]" : "text-ink-400 hover:text-ink-100",
+      )}
+    >
+      <Icon size={iconSize} strokeWidth={1.8} />
+    </motion.button>
+  );
+};

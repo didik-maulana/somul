@@ -20,8 +20,6 @@ export const AmbientWaveform: React.FC<AmbientWaveformProps> = ({ bars = 56, cla
     >
       {Array.from({ length: bars }, (_, index) => {
         const seed = noise(index + 1);
-        /* Fixed precision: an unrounded float serialises differently on the server than in the
-           browser, which React reports as a hydration mismatch. */
         const height = (12 + seed * 88).toFixed(2);
         return (
           <motion.span

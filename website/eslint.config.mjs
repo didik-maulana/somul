@@ -8,6 +8,10 @@ const compat = new FlatCompat({
 
 const config = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    files: ["src/features/mixer/components/AppIcon.tsx"],
+    rules: { "@next/next/no-img-element": "off" },
+  },
   { ignores: [".next/**", "out/**", "node_modules/**", "next-env.d.ts"] },
 ];
 

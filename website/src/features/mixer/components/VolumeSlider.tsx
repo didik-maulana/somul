@@ -4,21 +4,30 @@ import type React from "react";
 import { useCallback, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
 
+type SliderTone = "app" | "master";
+
 interface VolumeSliderProps {
   value: number;
-  accent: string;
   label: string;
+  tone?: SliderTone;
   dimmed?: boolean;
   onChange: (value: number) => void;
 }
 
 const STEP = 0.05;
+const KNOB_SIZE = 14;
+
+const TONE_FILL: Record<SliderTone, string> = {
+  app: "bg-brand-600",
+  master: "bg-gradient-to-r from-brand-800 via-brand-500 to-signal-300",
+};
+
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
 
 export const VolumeSlider: React.FC<VolumeSliderProps> = ({
   value,
-  accent,
   label,
+  tone = "app",
   dimmed = false,
   onChange,
 }) => {
@@ -90,26 +99,24 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
       onPointerUp={stopDragging}
       onPointerCancel={stopDragging}
       onKeyDown={handleKeyDown}
-      className={cn(
-        "group relative h-8 cursor-pointer touch-none select-none",
-        dimmed && "opacity-45",
-      )}
+      className="group relative h-3.5 flex-1 cursor-pointer touch-none select-none"
     >
-      <div className="absolute inset-x-0 top-1/2 h-[6px] -translate-y-1/2 overflow-hidden rounded-full bg-white/[0.08]">
+      <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/12">
         <div
-          className="h-full w-full origin-left rounded-full"
-          style={{
-            transform: `scaleX(${value})`,
-            background: `linear-gradient(90deg, ${accent}66 0%, ${accent} 100%)`,
-          }}
+          className={cn(
+            "h-full w-full origin-left rounded-full",
+            dimmed ? "bg-ink-600/45" : TONE_FILL[tone],
+          )}
+          style={{ transform: `scaleX(${value})` }}
         />
       </div>
       <div
         className={cn(
-          "pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_2px_10px_rgba(0,0,0,0.55)] transition-[box-shadow,scale] duration-150",
-          dragging ? "scale-115 shadow-[0_4px_18px_rgba(0,0,0,0.7)]" : "group-hover:scale-110",
+          "pointer-events-none absolute top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/20 bg-[#FCFCFD] shadow-[0_1px_3px_rgba(0,0,0,0.4)] transition-transform duration-150",
+          dimmed && "opacity-60",
+          dragging ? "scale-115" : "group-hover:scale-110",
         )}
-        style={{ left: `${value * 100}%` }}
+        style={{ left: `${value * 100}%`, width: KNOB_SIZE, height: KNOB_SIZE }}
       />
     </div>
   );

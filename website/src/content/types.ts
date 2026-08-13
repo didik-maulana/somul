@@ -6,20 +6,28 @@ export interface NavLink {
 export interface DemoApp {
   id: string;
   name: string;
-  accent: string;
   volume: number;
   muted: boolean;
-  activity: number;
 }
 
-export type FeatureSpan = "wide" | "tall";
+export interface Callout {
+  id: string;
+  title: string;
+  body: string;
+}
 
 export interface Feature {
   id: string;
   icon: string;
   title: string;
   body: string;
-  span?: FeatureSpan;
+}
+
+export interface MiniMixerRow {
+  id: string;
+  label: string;
+  value: number;
+  tone: "brand" | "mint" | "signal";
 }
 
 export interface Step {
@@ -29,18 +37,22 @@ export interface Step {
   body: string;
 }
 
-export type PlatformStatus = "shipping" | "partial" | "next";
-
-export interface PlatformRow {
+export interface FlowNode {
   id: string;
-  platform: string;
-  detail: string;
-  status: PlatformStatus;
-  statusLabel: string;
+  label: string;
+  hint: string;
 }
 
-export interface PrivacyStat {
+export interface PrivacyFact {
   id: string;
-  value: string;
+  icon: string;
   label: string;
+  value: string;
+  tone: "mint" | "signal";
+}
+
+export interface FaqEntry {
+  id: string;
+  question: string;
+  answer: string;
 }

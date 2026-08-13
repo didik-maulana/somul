@@ -32,7 +32,7 @@ export const SiteNav: React.FC = () => {
       <div
         className={cn(
           "transition-colors duration-200",
-          condensed && "border-b border-white/[0.06] bg-ink-950/70 backdrop-blur-xl",
+          condensed && "border-b border-line-faint bg-ink-950/70 backdrop-blur-xl",
         )}
       >
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-3.5 sm:px-10">
@@ -61,7 +61,7 @@ export const SiteNav: React.FC = () => {
               target="_blank"
               rel="noreferrer"
               aria-label="Somul on GitHub"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-ink-400 transition-colors duration-150 hover:bg-white/[0.06] hover:text-white"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-ink-400 transition-colors duration-150 hover:bg-white/6 hover:text-white"
             >
               <Github size={17} strokeWidth={1.7} />
             </a>

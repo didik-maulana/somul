@@ -7,37 +7,38 @@ import { revealUp, staggerParent, viewportOnce } from "@/lib/motion";
 import { Eyebrow } from "@/components/ui/Eyebrow";
 
 interface SectionHeadingProps {
-  eyebrow: string;
+  eyebrow?: string;
   title: React.ReactNode;
   body?: string;
-  align?: "left" | "center";
   className?: string;
+  titleClassName?: string;
 }
 
 export const SectionHeading: React.FC<SectionHeadingProps> = ({
   eyebrow,
   title,
   body,
-  align = "left",
   className,
+  titleClassName,
 }) => (
   <motion.header
     variants={staggerParent(0.1)}
     initial="hidden"
     whileInView="visible"
     viewport={viewportOnce}
-    className={cn(
-      "flex max-w-2xl flex-col gap-5",
-      align === "center" && "mx-auto items-center text-center",
-      className,
-    )}
+    className={cn("flex flex-col items-start gap-5", className)}
   >
-    <motion.div variants={revealUp}>
-      <Eyebrow>{eyebrow}</Eyebrow>
-    </motion.div>
+    {eyebrow ? (
+      <motion.div variants={revealUp}>
+        <Eyebrow>{eyebrow}</Eyebrow>
+      </motion.div>
+    ) : null}
     <motion.h2
       variants={revealUp}
-      className="text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.03em] text-white sm:text-5xl"
+      className={cn(
+        "text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.03em] text-white sm:text-5xl",
+        titleClassName,
+      )}
     >
       {title}
     </motion.h2>

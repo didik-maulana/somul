@@ -11,10 +11,13 @@ import {
 } from "motion/react";
 import { BatteryFull, Search, Wifi } from "lucide-react";
 import { Logo } from "@/components/ui/Logo";
+import { SITE } from "@/content/site";
+import { AppleGlyph } from "@/features/hero/components/AppleGlyph";
 import { MixerPanel } from "@/features/mixer/components/MixerPanel";
 import { DURATION, EASE_DECELERATE, springSoft } from "@/lib/motion";
 
 const TILT_DEGREES = 7;
+const MENU_CLOCK = "Mon 6 Jan 1:36 PM";
 
 export const MenuBarStage: React.FC = () => {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -49,20 +52,32 @@ export const MenuBarStage: React.FC = () => {
           initial={{ opacity: 0, y: -12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: DURATION.slow, ease: EASE_DECELERATE, delay: 0.15 }}
-          className="flex items-center justify-end gap-4 rounded-t-xl border border-white/[0.08] border-b-transparent bg-white/[0.04] px-4 py-2 backdrop-blur-xl"
+          className="flex items-center justify-between gap-2.5 rounded-t-xl border border-b-0 border-hairline bg-surface-3 px-3 py-1.5 backdrop-blur-xl"
         >
-          <Wifi size={14} strokeWidth={1.8} className="text-ink-400" aria-hidden />
-          <BatteryFull size={16} strokeWidth={1.8} className="text-ink-400" aria-hidden />
-          <Search size={14} strokeWidth={1.8} className="text-ink-400" aria-hidden />
-          <span className="relative">
-            <Logo className="h-6 w-6 rounded-[7px]" />
-            <motion.span
-              className="absolute -inset-1.5 rounded-[11px] ring-1 ring-brand-400/50"
-              animate={reduceMotion ? undefined : { opacity: [0, 0.9, 0], scale: [0.9, 1.15, 1.3] }}
-              transition={{ duration: 2.6, repeat: Infinity, ease: "easeOut" }}
-            />
+          <span className="flex items-center gap-2.5 text-ink-50">
+            <AppleGlyph />
+            <span className="text-[11px] font-bold">{SITE.name}</span>
           </span>
-          <span className="font-mono text-[11px] text-ink-400">09:41</span>
+          <span className="flex items-center gap-2 text-ink-200">
+            <span className="relative flex">
+              <Logo size={16} plain />
+              <motion.span
+                className="absolute -inset-1 rounded-md ring-1 ring-brand-400/50"
+                animate={
+                  reduceMotion ? undefined : { opacity: [0, 0.9, 0], scale: [0.9, 1.15, 1.3] }
+                }
+                transition={{ duration: 2.6, repeat: Infinity, ease: "easeOut" }}
+                aria-hidden
+              />
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="text-[11px]">97%</span>
+              <BatteryFull size={17} strokeWidth={1.6} aria-hidden />
+            </span>
+            <Wifi size={15} strokeWidth={1.6} aria-hidden />
+            <Search size={14} strokeWidth={1.6} aria-hidden />
+            <span className="text-[11px] text-ink-100">{MENU_CLOCK}</span>
+          </span>
         </motion.div>
 
         <motion.div
@@ -71,7 +86,7 @@ export const MenuBarStage: React.FC = () => {
           transition={{ duration: DURATION.slow, ease: EASE_DECELERATE, delay: 0.3 }}
           className="flex justify-end pr-6"
         >
-          <MixerPanel className="-mt-px" />
+          <MixerPanel />
         </motion.div>
       </motion.div>
 

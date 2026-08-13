@@ -6,25 +6,26 @@ import { motion, useMotionValue, useReducedMotion, useSpring } from "motion/reac
 import { cn } from "@/lib/cn";
 import { springSnappy } from "@/lib/motion";
 
-type MagneticButtonVariant = "primary" | "ghost";
+type ButtonVariant = "primary" | "ghost";
 
-interface MagneticButtonProps {
+interface ButtonProps {
   href: string;
-  variant?: MagneticButtonVariant;
+  variant?: ButtonVariant;
   className?: string;
   external?: boolean;
   children: React.ReactNode;
 }
 
-const VARIANT_CLASS: Record<MagneticButtonVariant, string> = {
+const VARIANT_CLASS: Record<ButtonVariant, string> = {
   primary:
-    "bg-brand-600 text-white shadow-[0_18px_40px_-18px_rgba(66,116,217,0.9)] hover:bg-brand-500",
-  ghost: "surface hairline text-ink-100 hover:border-white/20",
+    "gap-2 rounded-full bg-brand-600 px-6 py-3 text-sm font-medium text-white shadow-[0_1px_0_#ffffff2e,0_3px_8px_-3px_#00000070,0_8px_24px_-8px_#4274d966] hover:bg-brand-500",
+  ghost:
+    "gap-2 rounded-full border border-hairline bg-ink-900/72 px-6 py-3 text-sm font-medium text-ink-100 backdrop-blur-xl hover:border-white/20 hover:text-white",
 };
 
 const PULL = 0.35;
 
-export const MagneticButton: React.FC<MagneticButtonProps> = ({
+export const Button: React.FC<ButtonProps> = ({
   href,
   variant = "primary",
   className,
@@ -61,7 +62,7 @@ export const MagneticButton: React.FC<MagneticButtonProps> = ({
       onPointerLeave={handlePointerLeave}
       whileTap={{ scale: 0.97 }}
       className={cn(
-        "group relative inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-medium transition-colors duration-150",
+        "inline-flex items-center justify-center transition-colors duration-150",
         VARIANT_CLASS[variant],
         className,
       )}

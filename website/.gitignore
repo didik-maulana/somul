@@ -9,3 +9,6 @@ next-env.d.ts
 
 # Build artefact copied in for local or tunnel testing. 11 MB has no business in git.
 public/*.dmg
+
+# Source-of-truth design file, kept out of the app repo.
+design/
