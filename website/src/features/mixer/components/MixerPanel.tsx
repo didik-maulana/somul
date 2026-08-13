@@ -16,7 +16,7 @@ export const MixerPanel: React.FC = () => {
   const reduceMotion = useReducedMotion();
 
   return (
-    <div className="flex h-130 w-90 max-w-full flex-col overflow-hidden rounded-2xl border border-ink-750/90 bg-ink-950/82 shadow-[0_16px_48px_rgba(0,0,0,0.44)] backdrop-blur-2xl">
+    <div className="flex h-130 w-full max-w-90 flex-col overflow-hidden rounded-2xl border border-ink-750/90 bg-ink-950/82 shadow-[0_16px_48px_rgba(0,0,0,0.44)] backdrop-blur-2xl">
       <header className="flex h-12 shrink-0 items-center justify-between gap-2.5 border-b border-ink-750/80 px-3.5">
         <div className="flex items-center gap-2">
           <Logo size={22} />

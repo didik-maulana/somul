@@ -24,7 +24,7 @@ export const Hero: React.FC = () => {
   return (
     <section
       ref={sectionRef}
-      className="relative overflow-hidden px-6 pt-32 pb-28 sm:px-10 lg:pt-40"
+      className="relative overflow-hidden px-5 pt-28 pb-20 sm:px-10 sm:pt-32 sm:pb-28 lg:pt-40"
     >
       <div className="pointer-events-none absolute inset-0 grid-field" aria-hidden />
       <div className="pointer-events-none absolute right-[10%] bottom-[16%] h-65 w-160 rounded-full bg-brand-600/25 blur-[90px]" />
@@ -38,16 +38,16 @@ export const Hero: React.FC = () => {
 
       <motion.div
         style={{ y: contentY }}
-        className="relative mx-auto grid w-full max-w-7xl items-center gap-16 lg:grid-cols-[minmax(0,1fr)_auto]"
+        className="relative mx-auto grid w-full max-w-7xl items-center gap-12 sm:gap-16 lg:grid-cols-[minmax(0,1fr)_auto]"
       >
-        <div className="flex flex-col items-start gap-6.5">
+        <div className="flex min-w-0 flex-col items-start gap-6.5">
           <HeroHeadline />
 
           <motion.p
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: DURATION.reveal, ease: EASE_DECELERATE, delay: 0.5 }}
-            className="max-w-[600px] text-pretty text-[19px] leading-relaxed text-ink-400"
+            className="max-w-[600px] text-pretty text-[17px] leading-relaxed text-ink-400 sm:text-[19px]"
           >
             {SITE.description}
           </motion.p>
@@ -69,7 +69,7 @@ export const Hero: React.FC = () => {
           </motion.div>
         </div>
 
-        <div className="flex justify-center lg:justify-end">
+        <div className="hidden min-w-0 lg:flex lg:justify-end">
           <MenuBarStage />
         </div>
       </motion.div>

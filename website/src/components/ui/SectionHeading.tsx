@@ -36,7 +36,7 @@ export const SectionHeading: React.FC<SectionHeadingProps> = ({
     <motion.h2
       variants={revealUp}
       className={cn(
-        "text-balance text-4xl font-semibold leading-[1.08] tracking-[-0.03em] text-white sm:text-5xl",
+        "text-balance text-3xl font-semibold leading-[1.08] tracking-[-0.03em] text-white sm:text-5xl",
         titleClassName,
       )}
     >

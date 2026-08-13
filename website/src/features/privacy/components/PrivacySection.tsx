@@ -41,7 +41,7 @@ export const PrivacySection: React.FC = () => (
       initial="hidden"
       whileInView="visible"
       viewport={viewportOnce}
-      className="flex flex-col items-start gap-14 p-8 sm:p-14 lg:flex-row lg:items-center"
+      className="flex flex-col items-start gap-10 p-6 sm:gap-14 sm:p-14 lg:flex-row lg:items-center"
     >
       <div className="flex flex-1 flex-col items-start gap-5">
         <motion.div variants={revealUp}>
@@ -80,7 +80,7 @@ export const PrivacySection: React.FC = () => (
               <div
                 key={fact.id}
                 className={cn(
-                  "flex items-center justify-between gap-3.5 px-5.5 py-4",
+                  "flex flex-wrap items-center justify-between gap-x-3.5 gap-y-1 px-5 py-4 sm:px-5.5",
                   index > 0 && "border-t border-line-faint",
                 )}
               >

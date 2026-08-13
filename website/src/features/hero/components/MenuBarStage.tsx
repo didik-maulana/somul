@@ -27,7 +27,7 @@ export const MenuBarStage: React.FC = () => {
   const transform = useMotionTemplate`perspective(1400px) rotateX(${tiltX}deg) rotateY(${tiltY}deg)`;
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (reduceMotion || !stageRef.current) return;
+    if (event.pointerType !== "mouse" || reduceMotion || !stageRef.current) return;
     const bounds = stageRef.current.getBoundingClientRect();
     const relativeX = (event.clientX - bounds.left) / bounds.width - 0.5;
     const relativeY = (event.clientY - bounds.top) / bounds.height - 0.5;

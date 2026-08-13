@@ -29,7 +29,7 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ command }) => {
 
   return (
     <div className="flex items-center justify-between gap-3 overflow-hidden rounded-lg bg-black/40 px-3 py-2.5">
-      <code className="overflow-x-auto font-mono text-[12px] whitespace-nowrap text-mint-300">
+      <code className="min-w-0 overflow-x-auto font-mono text-[12px] whitespace-nowrap text-mint-300">
         {command}
       </code>
       <button

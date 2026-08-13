@@ -28,7 +28,7 @@ export const FeatureGrid: React.FC = () => (
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, amount: 0.15 }}
-      className="mt-14 flex flex-col gap-4"
+      className="mt-10 flex flex-col gap-4 sm:mt-14"
     >
       <div className="grid gap-4 lg:grid-cols-[848fr_416fr]">
         <Card className="flex flex-col items-center gap-8 p-6 sm:flex-row">

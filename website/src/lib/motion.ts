@@ -35,4 +35,4 @@ export const staggerParent = (stagger = 0.08, delayChildren = 0): Variants => ({
   visible: { transition: { staggerChildren: stagger, delayChildren } },
 });
 
-export const viewportOnce = { once: true, amount: 0.35 } as const;
+export const viewportOnce = { once: true, amount: 0.2 } as const;

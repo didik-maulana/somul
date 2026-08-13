@@ -2,17 +2,18 @@
 
 import type React from "react";
 import { useState } from "react";
-import { motion, useMotionValueEvent, useScroll, useSpring } from "motion/react";
-import { Github } from "lucide-react";
+import { AnimatePresence, motion, useMotionValueEvent, useScroll, useSpring } from "motion/react";
+import { Github, Menu, X } from "lucide-react";
 import { cn } from "@/lib/cn";
 import { Logo } from "@/components/ui/Logo";
 import { NAV_LINKS, SITE } from "@/content/site";
-import { DURATION, EASE_STANDARD } from "@/lib/motion";
+import { DURATION, EASE_DECELERATE, EASE_STANDARD } from "@/lib/motion";
 
 const CONDENSE_AT = 24;
 
 export const SiteNav: React.FC = () => {
   const [condensed, setCondensed] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 180, damping: 30, mass: 0.4 });
 
@@ -32,7 +33,8 @@ export const SiteNav: React.FC = () => {
       <div
         className={cn(
           "transition-colors duration-200",
-          condensed && "border-b border-line-faint bg-ink-950/70 backdrop-blur-xl",
+          (condensed || menuOpen) && "border-b border-line-faint backdrop-blur-xl",
+          menuOpen ? "bg-ink-950/95" : condensed && "bg-ink-950/70",
         )}
       >
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-3.5 sm:px-10">
@@ -55,13 +57,13 @@ export const SiteNav: React.FC = () => {
             ))}
           </ul>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2">
             <a
               href={SITE.repo}
               target="_blank"
               rel="noreferrer"
               aria-label="Somul on GitHub"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-ink-400 transition-colors duration-150 hover:bg-white/6 hover:text-white"
+              className="flex h-10 w-10 items-center justify-center rounded-full text-ink-400 transition-colors duration-150 hover:bg-white/6 hover:text-white"
             >
               <Github size={17} strokeWidth={1.7} />
             </a>
@@ -73,8 +75,49 @@ export const SiteNav: React.FC = () => {
             >
               Download
             </a>
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              aria-expanded={menuOpen}
+              aria-controls="site-nav-mobile"
+              aria-label={menuOpen ? "Close menu" : "Open menu"}
+              className="flex h-10 w-10 items-center justify-center rounded-full text-ink-300 transition-colors duration-150 hover:bg-white/6 hover:text-white md:hidden"
+            >
+              {menuOpen ? (
+                <X size={19} strokeWidth={1.7} aria-hidden />
+              ) : (
+                <Menu size={19} strokeWidth={1.7} aria-hidden />
+              )}
+            </button>
           </div>
         </nav>
+
+        <AnimatePresence initial={false}>
+          {menuOpen ? (
+            <motion.div
+              id="site-nav-mobile"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.24, ease: EASE_DECELERATE }}
+              className="overflow-hidden md:hidden"
+            >
+              <ul className="mx-auto flex w-full max-w-7xl flex-col px-6 pb-3 sm:px-10">
+                {NAV_LINKS.map((link) => (
+                  <li key={link.href}>
+                    <a
+                      href={link.href}
+                      onClick={() => setMenuOpen(false)}
+                      className="block border-t border-line-faint py-3.5 text-[15px] text-ink-300 transition-colors duration-150 hover:text-white"
+                    >
+                      {link.label}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </div>
     </motion.header>
   );

@@ -27,7 +27,7 @@ export const HeroHeadline: React.FC = () => (
     variants={staggerParent(0.07, 0.1)}
     initial="hidden"
     animate="visible"
-    className="text-[clamp(2.75rem,5.4vw,4.5rem)] font-semibold leading-[1.04] tracking-[-0.04em] text-white"
+    className="text-[clamp(2.25rem,5.4vw,4.5rem)] font-semibold leading-[1.04] tracking-[-0.04em] text-white"
   >
     {LINES.map((line, lineIndex) => (
       <span key={lineIndex} className="block overflow-hidden pb-[0.06em]">

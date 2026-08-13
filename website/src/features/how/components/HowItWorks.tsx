@@ -32,7 +32,7 @@ export const HowItWorks: React.FC = () => {
         className="max-w-[700px]"
       />
 
-      <div className="mt-16 flex flex-col items-start gap-14 lg:flex-row lg:items-center">
+      <div className="mt-12 flex flex-col items-start gap-12 sm:mt-16 sm:gap-14 lg:flex-row lg:items-center">
         <div ref={trackRef} className="relative flex-1 pl-10">
           <div className="absolute top-2 left-[13px] h-[calc(100%-1rem)] w-px bg-white/7">
             <motion.div

@@ -10,7 +10,7 @@ import { QuarantineNotice } from "@/features/download/components/QuarantineNotic
 import { revealUp, staggerParent, viewportOnce } from "@/lib/motion";
 
 export const DownloadSection: React.FC = () => (
-  <section className="relative overflow-hidden px-6 pt-20 pb-46 sm:px-10">
+  <section className="relative overflow-hidden px-5 pt-16 pb-32 sm:px-10 sm:pt-20 sm:pb-46">
     <div className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 opacity-25" aria-hidden>
       <AmbientWaveform bars={40} />
     </div>

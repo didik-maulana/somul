@@ -36,7 +36,7 @@ export const Accordion: React.FC<AccordionProps> = ({ entries, className }) => {
                 onClick={() => setOpenId(isOpen ? "" : entry.id)}
                 aria-expanded={isOpen}
                 aria-controls={panelId}
-                className="flex w-full items-center justify-between gap-6 py-6 text-left text-[19px] font-semibold tracking-[-0.015em] text-white"
+                className="flex w-full items-center justify-between gap-4 py-5 text-left text-[17px] font-semibold tracking-[-0.015em] text-white sm:gap-6 sm:py-6 sm:text-[19px]"
               >
                 {entry.question}
                 <ChevronDown
@@ -60,7 +60,7 @@ export const Accordion: React.FC<AccordionProps> = ({ entries, className }) => {
                   transition={{ duration: 0.28, ease: EASE_DECELERATE }}
                   className="overflow-hidden"
                 >
-                  <p className="pb-6 pr-30 text-base leading-relaxed text-ink-400">
+                  <p className="pb-6 text-base leading-relaxed text-ink-400 lg:pr-30">
                     {entry.answer}
                   </p>
                 </motion.div>

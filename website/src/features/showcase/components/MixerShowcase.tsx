@@ -13,11 +13,11 @@ import { revealUp, staggerParent, viewportOnce } from "@/lib/motion";
 export const MixerShowcase: React.FC = () => (
   <Section
     id="mixer"
-    innerClassName="flex flex-col items-center gap-18 lg:flex-row lg:justify-between"
+    innerClassName="flex flex-col items-center gap-12 sm:gap-18 lg:flex-row lg:justify-between"
   >
     <div className="pointer-events-none absolute top-[28%] left-[6%] h-75 w-115 rounded-full bg-signal-500/15 blur-[80px]" />
 
-    <Reveal className="relative flex flex-col items-center gap-5">
+    <Reveal className="relative flex w-full flex-col items-center gap-5 lg:w-auto">
       <motion.span
         initial={{ opacity: 0, y: 6 }}
         whileInView={{ opacity: 1, y: 0 }}

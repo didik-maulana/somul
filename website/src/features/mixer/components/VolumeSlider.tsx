@@ -99,7 +99,7 @@ export const VolumeSlider: React.FC<VolumeSliderProps> = ({
       onPointerUp={stopDragging}
       onPointerCancel={stopDragging}
       onKeyDown={handleKeyDown}
-      className="group relative h-3.5 flex-1 cursor-pointer touch-none select-none"
+      className="group relative h-6 flex-1 cursor-pointer touch-none select-none"
     >
       <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 overflow-hidden rounded-full bg-white/12">
         <div
