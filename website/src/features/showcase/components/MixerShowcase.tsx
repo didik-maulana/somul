@@ -17,7 +17,7 @@ export const MixerShowcase: React.FC = () => (
   >
     <div className="pointer-events-none absolute top-[28%] left-[6%] h-75 w-115 rounded-full bg-signal-500/15 blur-[80px]" />
 
-    <Reveal className="relative flex w-full flex-col items-center gap-5 lg:w-auto">
+    <Reveal className="relative flex w-full flex-col items-center gap-5 lg:w-90 lg:shrink-0">
       <motion.span
         initial={{ opacity: 0, y: 6 }}
         whileInView={{ opacity: 1, y: 0 }}
