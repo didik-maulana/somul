@@ -17,7 +17,7 @@ export const SiteFooter: React.FC = () => (
           <span className="text-[15px] font-semibold tracking-tight text-white">{SITE.name}</span>
         </span>
         <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-ink-500">
-          © {SITE.year} {SITE.name} · MIT licensed · v{SITE.version}
+          © {new Date().getFullYear()} · MIT licensed
         </span>
       </div>
 

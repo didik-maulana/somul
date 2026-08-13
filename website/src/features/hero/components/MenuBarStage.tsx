@@ -45,7 +45,7 @@ export const MenuBarStage: React.FC = () => {
       ref={stageRef}
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
-      className="relative w-full max-w-[520px]"
+      className="relative w-[560px] max-w-full"
     >
       <motion.div style={{ transform }} className="relative">
         <motion.div
@@ -84,7 +84,7 @@ export const MenuBarStage: React.FC = () => {
           initial={{ opacity: 0, y: -8, scale: 0.98 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           transition={{ duration: DURATION.slow, ease: EASE_DECELERATE, delay: 0.3 }}
-          className="flex justify-end pr-6"
+          className="flex justify-end"
         >
           <MixerPanel />
         </motion.div>

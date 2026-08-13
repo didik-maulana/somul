@@ -10,19 +10,20 @@ import type {
   Step,
 } from "@/content/types";
 
+export const APP_VERSION = "0.1.0";
+
 export const SITE = {
   name: "Somul",
   tagline: "Per-app volume, right in your menu bar.",
   description: "Every app making noise gets its own slider, right in your menu bar.",
-  version: "0.1.0",
-  year: 2026,
+  version: APP_VERSION,
   repo: "https://github.com/didik-maulana/somul",
   download:
     process.env.NEXT_PUBLIC_DOWNLOAD_URL ??
     "https://github.com/didik-maulana/somul/releases/latest/download/Somul.dmg",
   requirement: "macOS 14.4+ · Universal binary",
   quarantineCommand: "xattr -dr com.apple.quarantine /Applications/Somul.app",
-  hotkey: ["⌘", "⇧", "V"],
+  hotkey: ["⌘", "Shift", "V"],
 } as const;
 
 export const NAV_LINKS: NavLink[] = [
