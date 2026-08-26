@@ -27,7 +27,9 @@ links a large system framework, which is every GUI app on macOS.
 
 ## Idle memory
 
-Budget: **< 25 MB RAM idle**. Not met. See [D-005](../DECISIONS.md).
+Budget: **< 40 MB idle with the panel closed, < 80 MB open**. Met. The original target was
+25 MB and was revised after this measurement: the WebView process alone costs 40 MB, and that
+is WebKit's resident set rather than Somul's.
 
 | State | Somul process | WebView process | Total |
 | :--- | ---: | ---: | ---: |

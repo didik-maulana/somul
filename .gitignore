@@ -119,9 +119,6 @@ src-tauri/tauri.updater-test.conf.json
 *.key.pub
 
 ### Internal planning documents
-# Design and build-plan notes. Kept locally, deliberately not published: code
-# comments carry the reasoning a contributor needs (CONTRIBUTING.md).
+# Design notes. Kept locally, deliberately not published: code comments carry
+# the reasoning a contributor needs (CONTRIBUTING.md).
 DESIGN.md
-GOAL.md
-DECISIONS.md
-PROGRESS.md

@@ -51,7 +51,7 @@ print it by default.
 | :--- | :--- |
 | `npm run verify` | Typecheck, lint, Vitest, Clippy, and `cargo test`. The gate every PR must pass. |
 | `npm run test:watch` | Vitest in watch mode. |
-| `npm run audit:contrast` | Checks colour tokens against the WCAG thresholds in DESIGN.md. |
+| `npm run audit:contrast` | Checks the colour tokens in `src/styles/index.css` against WCAG contrast thresholds. |
 | `scripts/reset-local-state.sh` | Wipes Somul's settings, memory, and TCC grant for a clean first-run test. |
 | `scripts/serve-test-update.sh` | Serves a locally signed update feed so the updater can be exercised end to end. `SOMUL_FAKE_UPDATE=9.9.9 npm run tauri dev` is enough to see the banner without it. |
 
