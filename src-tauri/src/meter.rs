@@ -67,8 +67,14 @@ fn have_sessions_changed(previous: &[AudioSession], current: &[AudioSession]) ->
 fn has_master_changed(previous: &MasterState, current: &MasterState) -> bool {
     (previous.volume - current.volume).abs() > VOLUME_EPSILON
         || previous.is_muted != current.is_muted
-        || previous.device_id != current.device_id
-        || previous.device_name != current.device_name
+        || is_other_device(previous, current)
+}
+
+/// A different output is a different value, not a movement of the old one. Easing the slider
+/// between the two devices' levels animates a change nobody made, so this is published as a
+/// resync — the same treatment as reopening the panel.
+fn is_other_device(previous: &MasterState, current: &MasterState) -> bool {
+    previous.device_id != current.device_id || previous.device_name != current.device_name
 }
 
 /// Shared visibility flag. `set_panel_visibility` writes it; the loop blocks on it.
@@ -184,12 +190,15 @@ impl MeterLoop {
 
                     if tick % MASTER_POLL_EVERY_TICKS == 0 {
                         if let Ok(master) = backend.master() {
-                            let is_first_read_since_opening = last_master.is_none();
+                            let should_snap = match last_master.as_ref() {
+                                None => true,
+                                Some(previous) => is_other_device(previous, &master),
+                            };
                             let has_changed = last_master
                                 .as_ref()
                                 .is_some_and(|previous| has_master_changed(previous, &master));
 
-                            if is_first_read_since_opening {
+                            if should_snap {
                                 emitter.emit_master_resync(&master);
                                 last_master = Some(master);
                             } else if has_changed {
@@ -662,6 +671,41 @@ mod tests {
         assert!(
             (masters.last().expect("an emit").volume - 0.13).abs() < 0.01,
             "the emitted volume did not match the new system volume"
+        );
+    }
+
+    /// A device switch has to land as a snap. Easing would sweep the thumb from the old device's
+    /// level to the new one's, which reads as Somul turning the volume rather than reporting it.
+    #[test]
+    fn snaps_rather_than_eases_when_the_output_device_changes() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+        thread::sleep(SETTLE);
+
+        let resyncs_before = harness.emitter.resyncs().len();
+        let changes_before = harness.emitter.masters().len();
+
+        harness
+            .backend
+            .set_default_output_device(&DeviceId::new("mock:headphones"))
+            .expect("the mock lists headphones");
+        thread::sleep(SETTLE);
+
+        let resyncs = harness.emitter.resyncs();
+
+        assert!(
+            resyncs.len() > resyncs_before,
+            "switching the output device produced no master-resync emit"
+        );
+        assert_eq!(
+            resyncs.last().expect("an emit").device_id,
+            DeviceId::new("mock:headphones")
+        );
+        assert_eq!(
+            harness.emitter.masters().len(),
+            changes_before,
+            "a device switch was published as an eased change as well as a snap"
         );
     }
 

@@ -15,6 +15,7 @@
 //!   "no audio".
 
 use std::ffi::c_void;
+use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -25,13 +26,13 @@ use coreaudio_sys::{
     kAudioObjectPropertyScopeGlobal, AudioBufferList, AudioDeviceCreateIOProcID,
     AudioDeviceDestroyIOProcID, AudioDeviceIOProcID, AudioDeviceStart, AudioDeviceStop,
     AudioHardwareCreateAggregateDevice, AudioHardwareDestroyAggregateDevice, AudioObjectID,
-    AudioTimeStamp, CFDictionaryRef, CFStringRef, OSStatus,
+    AudioTimeStamp, CFArrayRef, CFDictionaryRef, CFStringRef, OSStatus,
 };
 use objc2::rc::Retained;
 use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString};
 
 use super::process::ProcessSession;
-use super::property::{address, check, read_property, take_cf_string};
+use super::property::{address, check, read_property, take_cf_string, write_property};
 use super::tap::{ProcessTap, TapMute};
 use crate::audio::AudioError;
 
@@ -43,6 +44,14 @@ const CHANNELS_PER_TAP: usize = 2;
 /// simultaneously mixed apps — far past any real desktop, and small enough to live on the stack
 /// so the callback never allocates.
 const MAX_CHANNELS: usize = 64;
+
+/// `kAudioAggregateDevicePropertyFullSubDeviceList`, which `coreaudio-sys` does not bind. Settable
+/// on a live aggregate: the HAL swaps the sub-devices under a running IO proc.
+const AGGREGATE_SUB_DEVICE_LIST: u32 = u32::from_be_bytes(*b"grup");
+
+/// `kAudioAggregateDevicePropertyMainSubDevice`. The sub-device the aggregate takes its clock
+/// from; must already be in the list above.
+const AGGREGATE_MAIN_SUB_DEVICE: u32 = u32::from_be_bytes(*b"amst");
 
 /// The parameters the render callback reads and the level it publishes back.
 ///
@@ -68,10 +77,51 @@ pub(super) struct SessionControl {
     ///
     /// Written from the render callback, so it is an atomic rather than a lock.
     signal_run: AtomicU32,
+    /// `f32` bits. The gain the mix is actually applying right now, which chases `gain` rather
+    /// than jumping to it.
+    ///
+    /// Owned by the render callback: nothing else writes it, and it is an atomic only because the
+    /// callback sees `SessionControl` through a shared reference. Starts where `gain` already is,
+    /// so a rebuild restores the remembered level immediately and only a change ramps.
+    applied: AtomicU32,
 }
 
 /// Below this a tap is reporting its own noise floor, not audio. -80 dBFS.
 const SIGNAL_FLOOR: f32 = 0.0001;
+
+/// Per-frame coefficient of the one-pole the applied gain follows the slider through.
+///
+/// A gain read once per cycle and held flat across it is a staircase, and the step lands wherever
+/// the buffer boundary falls. On built-in output the buffers are short enough for that to pass as
+/// a smooth move; over Bluetooth they are several times longer, and the same staircase is the
+/// zipper the user hears when dragging a slider.
+///
+/// Roughly a 10 ms time constant at 48 kHz: fast enough that a drag feels attached to the thumb,
+/// slow enough that no single step is a click. The rate is nominal rather than read from the
+/// device, so the constant is a time *about* 10 ms, not exactly it - the ear cannot tell the
+/// difference between 9 and 11, and threading the real rate into the callback buys nothing.
+const GAIN_SLEW: f32 = 0.002;
+
+/// Per-frame coefficient of the duck applied around a device swap. Roughly a 3 ms time constant
+/// at 48 kHz — fast enough that [`FADE_SETTLE`] stays short enough not to read as a dropout, slow
+/// enough to be a fade rather than a second click.
+const FADE_SLEW: f32 = 0.007;
+
+/// How long the mix is given to reach silence before the sub-device is swapped underneath it.
+///
+/// Six time constants, so the level is roughly -55 dB by the time the swap lands. Waiting for the
+/// callback to report arrival instead would mean blocking on a device that may already have
+/// stopped, which is the one state where the wait can never end.
+const FADE_SETTLE: Duration = Duration::from_millis(20);
+
+/// Below this the ramp has arrived and snaps to the target.
+///
+/// Wide enough on purpose. A one-pole in `f32` does not converge: once the step is smaller than
+/// the ULP of the value it is added to, the sum stops moving and the ramp stalls tens of
+/// microunits short — which without a snap is a slider that never quite sets the volume it shows.
+/// One part in ten thousand of full scale is a hundred times past that floor and eighty dB below
+/// anything audible.
+const GAIN_SETTLED: f32 = 1.0e-4;
 
 /// How many consecutive cycles above the floor make an app a mixer row.
 ///
@@ -233,6 +283,7 @@ impl SessionControl {
             peak: AtomicU32::new(0.0_f32.to_bits()),
             has_signal: AtomicBool::new(has_signal),
             signal_run: AtomicU32::new(0),
+            applied: AtomicU32::new(if is_muted { 0.0 } else { gain }.to_bits()),
         }
     }
 
@@ -247,6 +298,14 @@ impl SessionControl {
 
     pub fn set_gain(&self, gain: f32) {
         self.gain.store(gain.to_bits(), Ordering::Relaxed);
+    }
+
+    fn applied_gain(&self) -> f32 {
+        f32::from_bits(self.applied.load(Ordering::Relaxed))
+    }
+
+    fn set_applied_gain(&self, gain: f32) {
+        self.applied.store(gain.to_bits(), Ordering::Relaxed);
     }
 
     pub fn is_muted(&self) -> bool {
@@ -311,12 +370,59 @@ struct RenderState {
     /// a second copy of every app through the device on top of the one the hardware is already
     /// playing.
     is_probing: bool,
+    /// Level the whole mix is scaled by, used to duck around an output swap.
+    fade: Fade,
     /// Render cycles that arrived with tap channels attached.
     ///
     /// A tap mutes its app at the hardware, so the app is audible only through this callback. If
     /// the callback never runs, or runs with no tap input, the user's audio is simply gone until
     /// Somul exits. [`AggregateStartup`] reads this to decide whether the mix is really running.
     tapped_cycles: AtomicU64,
+}
+
+/// A duck applied to the whole mix, independent of any app's own gain.
+///
+/// Exists for the moment the aggregate's output is swapped. The HAL replaces the device under a
+/// running IO proc, and the samples either side of that swap have nothing to do with each other —
+/// a step the hardware reproduces as a click. Ducking to silence first makes the step a step
+/// between two silences.
+#[derive(Debug)]
+struct Fade {
+    /// `f32` bits, owned by the render callback in the same way as [`SessionControl::applied`].
+    current: AtomicU32,
+    /// `f32` bits. Where the callback is being asked to take the level.
+    target: AtomicU32,
+}
+
+impl Fade {
+    /// Starts silent. Every aggregate is either brand new or replacing one that was ducked before
+    /// it was torn down, and both want the first cycles faded in rather than stepped into.
+    fn ducked() -> Self {
+        Self {
+            current: AtomicU32::new(0.0_f32.to_bits()),
+            target: AtomicU32::new(1.0_f32.to_bits()),
+        }
+    }
+
+    fn current(&self) -> f32 {
+        f32::from_bits(self.current.load(Ordering::Relaxed))
+    }
+
+    fn set_current(&self, level: f32) {
+        self.current.store(level.to_bits(), Ordering::Relaxed);
+    }
+
+    fn target(&self) -> f32 {
+        f32::from_bits(self.target.load(Ordering::Relaxed))
+    }
+
+    fn duck(&self) {
+        self.target.store(0.0_f32.to_bits(), Ordering::Relaxed);
+    }
+
+    fn restore(&self) {
+        self.target.store(1.0_f32.to_bits(), Ordering::Relaxed);
+    }
 }
 
 /// A private aggregate device holding the real output plus every live tap.
@@ -330,6 +436,69 @@ struct Aggregate {
 }
 
 impl Aggregate {
+    /// Moves the mix onto another output without touching the taps.
+    ///
+    /// Tearing the aggregate down instead would destroy every tap, and a destroyed tap hands its
+    /// app back to the hardware until the replacement is built, started, and heard — a silence
+    /// long enough to read as the app pausing. Swapping the sub-device leaves the taps, the IO
+    /// proc, and every gain in place; the only gap is the HAL's own restart.
+    fn retarget(&self, output_uid: &str) -> Result<(), AudioError> {
+        let sub_devices = NSArray::from_retained_slice(&[NSString::from_str(output_uid)]);
+        let sub_devices_ref: CFArrayRef = Retained::as_ptr(&sub_devices).cast();
+
+        write_property(
+            self.device,
+            &address(
+                AGGREGATE_SUB_DEVICE_LIST,
+                kAudioObjectPropertyScopeGlobal,
+                kAudioObjectPropertyElementMain,
+            ),
+            &sub_devices_ref,
+            "moving the mixer onto the new output",
+        )?;
+
+        let main = NSString::from_str(output_uid);
+        let main_ref: CFStringRef = Retained::as_ptr(&main).cast();
+
+        let main_address = address(
+            AGGREGATE_MAIN_SUB_DEVICE,
+            kAudioObjectPropertyScopeGlobal,
+            kAudioObjectPropertyElementMain,
+        );
+
+        write_property(
+            self.device,
+            &main_address,
+            &main_ref,
+            "clocking the mixer from the new output",
+        )?;
+
+        // Read back, for the same reason `set_default_output_device` does: the HAL answers noErr
+        // to a composition it then declines to adopt. Trusting the write would leave the mix
+        // playing out of the old device with the engine recording the new one, which is the
+        // original bug wearing the fix's clothes.
+        //
+        // Against the main sub-device rather than the *active* sub-device list, which is the
+        // stricter question and the wrong one. A Bluetooth device selected a moment ago has been
+        // adopted but has not started streaming, so it is absent from the active list while being
+        // exactly the device the mix now belongs on — which is why moving to Bluetooth failed
+        // where moving to the built-in speakers, always streaming, did not.
+        let adopted = read_property::<CFStringRef>(
+            self.device,
+            &main_address,
+            "reading back the mixer's main sub-device",
+        )
+        .map(take_cf_string)?;
+
+        if adopted == output_uid {
+            return Ok(());
+        }
+
+        Err(AudioError::BackendFailure(format!(
+            "the mixer stayed clocked from {adopted} instead of {output_uid}"
+        )))
+    }
+
     fn stop(&mut self) {
         if self.is_running {
             // SAFETY: `device` and `io_proc` were created together below and neither has been
@@ -396,6 +565,13 @@ struct EngineState {
     /// Cleared only when capture succeeds: the panel reads it to tell a grant that has not landed
     /// yet from one this process will never see.
     capture_retries: u32,
+    /// The output device the current aggregate was built around.
+    ///
+    /// A tapped app is muted at the hardware and audible only through the aggregate, so the
+    /// aggregate's sub-device *is* where that app plays. Switching the system output moves
+    /// everything untapped and leaves every tapped app behind on the old device, which is a
+    /// picker that visibly does nothing for exactly the apps the mixer is showing.
+    output: Option<AudioObjectID>,
 }
 
 /// The engine as the backend sees it.
@@ -413,30 +589,72 @@ pub(super) struct TapEngine {
 }
 
 impl TapEngine {
-    /// Brings the tap set in line with the apps currently open.
+    /// Brings the tap set in line with the apps currently playing.
     ///
-    /// A rebuild tears the aggregate down and builds it again, which is audible as a short gap.
-    /// It therefore happens only when the set of keys actually changes, not on every poll.
+    /// A rebuild tears the aggregate down and builds it again, and every tap it destroys hands its
+    /// app back to the hardware until the replacement has been built, started, and heard. That gap
+    /// is audible, so it is spent only on the one thing that cannot be done without it: giving a
+    /// tap to an app that has none.
+    ///
+    /// An app *leaving* the list therefore rebuilds nothing. `IsRunningOutput` goes false for
+    /// every app at once whenever the output device changes, and again between tracks and across
+    /// a stream reopening — and a rebuild on each of those was heard as every other app pausing
+    /// and resuming. The departing app's tap simply stays: it delivers silence while its app is
+    /// quiet, carries it again the moment it resumes, and is swept by the next rebuild that has a
+    /// reason of its own.
     pub fn sync(&self, processes: &[ProcessSession]) -> Result<(), AudioError> {
         let mut state = self.lock();
 
         let wanted: Vec<String> = processes.iter().map(ProcessSession::identifier).collect();
         let is_first_sync = !self.has_synced.swap(true, Ordering::Relaxed);
+        let is_short_a_tap = {
+            let built: Vec<&str> = state.slots.iter().map(|slot| slot.key.as_str()).collect();
 
-        if wanted == state.keys && !is_first_sync {
-            return Ok(());
-        }
+            is_short_a_tap(&wanted, &built)
+        };
 
-        state.remember();
-        state.teardown();
+        // Tracks what is playing rather than what was last built: peaks are published against
+        // these keys, and the panel pairs them with the session list by key.
         state.keys = wanted;
-        state.processes = processes.to_vec();
 
-        if processes.is_empty() {
+        if is_first_sync || is_short_a_tap {
+            state.processes = processes.to_vec();
+
+            let processes = state.processes.clone();
+
+            return state.rebuild(&processes, self.tap_mute());
+        }
+
+        // Only meaningful while an aggregate exists. With no taps built there is no device to be
+        // stale against, and comparing anyway would rebuild on every poll of a Mac that is
+        // playing nothing.
+        if state.aggregate.is_some() && state.output != super::default_output_device().ok() {
+            return state.follow_output(self.tap_mute());
+        }
+
+        Ok(())
+    }
+
+    /// Rebuilds the aggregate around whatever the system output is now.
+    ///
+    /// Called straight from the device switch rather than left to the next poll. The meter loop
+    /// is stopped while the panel is hidden, so a switch made from elsewhere in macOS would
+    /// otherwise leave every tapped app on the old device until the panel was next opened -- and
+    /// a switch made from Somul's own picker would lag it by up to a poll.
+    pub fn follow_default_output(&self) -> Result<(), AudioError> {
+        let mut state = self.lock();
+
+        if state.aggregate.is_none() {
             return Ok(());
         }
 
-        state.rebuild(processes, self.tap_mute())
+        if state.output == super::default_output_device().ok() {
+            return Ok(());
+        }
+
+        let mute = self.tap_mute();
+
+        state.follow_output(mute)
     }
 
     /// Takes the apps over once one of them has been heard through a passthrough tap.
@@ -730,6 +948,48 @@ impl EngineState {
         self.aggregate = None;
         self.slots.clear();
         self.keys.clear();
+        self.output = None;
+    }
+
+    /// Points the mix at whatever the system output is now, in place where the HAL allows it.
+    ///
+    /// The fallback is a full rebuild, and it is a fallback rather than the default because of
+    /// what a rebuild costs the listener: see [`Aggregate::retarget`].
+    fn follow_output(&mut self, mute: TapMute) -> Result<(), AudioError> {
+        let output = super::default_output_device()?;
+        let output_uid = device_uid(output)?;
+
+        let moved = self.aggregate.as_ref().map(|aggregate| {
+            // Ducked across the swap, and left ducked if it fails: the fallback below tears this
+            // aggregate down, and silence is the right level to be at when that happens.
+            aggregate.render.fade.duck();
+            thread::sleep(FADE_SETTLE);
+
+            let result = aggregate.retarget(&output_uid);
+
+            if result.is_ok() {
+                aggregate.render.fade.restore();
+            }
+
+            result
+        });
+
+        match moved {
+            Some(Ok(())) => {
+                diagnose!("moved the mix onto {output_uid} in place");
+                self.output = Some(output);
+
+                return Ok(());
+            }
+            Some(Err(error)) => {
+                diagnose!("could not move the mix onto {output_uid} in place, rebuilding: {error:?}");
+            }
+            None => {}
+        }
+
+        let processes = self.processes.clone();
+
+        self.rebuild(&processes, mute)
     }
 
     /// Replaces the tap set, leaving nothing behind if it cannot.
@@ -755,6 +1015,8 @@ impl EngineState {
     fn build(&mut self, processes: &[ProcessSession], mute: TapMute) -> Result<(), AudioError> {
         let output = super::default_output_device()?;
         let output_uid = device_uid(output)?;
+
+        self.output = Some(output);
 
         let mut slots = Vec::with_capacity(processes.len());
 
@@ -791,6 +1053,7 @@ impl EngineState {
                 .iter()
                 .map(|slot| Arc::clone(&slot.control))
                 .collect(),
+            fade: Fade::ducked(),
             tapped_cycles: AtomicU64::new(0),
             is_probing: mute == TapMute::Passthrough,
         });
@@ -877,6 +1140,16 @@ fn wait_for_mix(render: &RenderState) -> Result<(), AudioError> {
         "the mixer started but never rendered a tapped cycle, so the taps were released"
             .to_owned(),
     ))
+}
+
+/// Whether anything playing has no tap of its own, which is the only thing worth a rebuild.
+///
+/// Deliberately one-directional. Keys that are built but no longer playing are not a reason to
+/// rebuild — see [`TapEngine::sync`] for why that direction is the expensive mistake.
+fn is_short_a_tap(wanted: &[String], built: &[&str]) -> bool {
+    wanted
+        .iter()
+        .any(|key| !built.contains(&key.as_str()))
 }
 
 /// Reads the device UID the aggregate description keys its sub-device on.
@@ -1115,7 +1388,45 @@ unsafe extern "C" fn render_callback(
         )
     };
 
+    // SAFETY: the output view was mapped from this cycle's buffer list, and the frame count came
+    // from that same list.
+    unsafe { duck(&outputs, output_frames, &state.fade) };
+
     0
+}
+
+/// Scales the summed mix by the fade level, advancing it one step per frame.
+///
+/// A pass of its own rather than folded into each app's gain: the duck belongs to the output, not
+/// to any one app, and applying it once to the sum is both cheaper and the only way every app is
+/// guaranteed to be scaled by the same value.
+///
+/// SAFETY: `outputs` must describe live buffers holding at least `frames` frames.
+unsafe fn duck(outputs: &Channels, frames: usize, fade: &Fade) {
+    let target = fade.target();
+    let mut level = fade.current();
+
+    // The steady state is full level, which is a multiply by one on every sample of every cycle
+    // for the whole life of the engine. Skipping it costs one comparison instead.
+    if level == target && target == 1.0 {
+        return;
+    }
+
+    for frame in 0..frames {
+        level += (target - level) * FADE_SLEW;
+
+        if (target - level).abs() < GAIN_SETTLED {
+            level = target;
+        }
+
+        for channel in 0..outputs.len {
+            let (pointer, stride) = outputs.entries[channel];
+
+            unsafe { *pointer.add(frame * stride) *= level };
+        }
+    }
+
+    fade.set_current(level);
 }
 
 /// Sums every tapped app into the output bus at its own gain.
@@ -1152,8 +1463,16 @@ unsafe fn mix(
     }
 
     for (index, control) in controls.iter().enumerate() {
-        let gain = if control.is_muted() { 0.0 } else { control.gain() };
+        let target = if control.is_muted() { 0.0 } else { control.gain() };
+        let mut gain = control.applied_gain();
         let mut peak = 0.0_f32;
+
+        // Channel pairing is resolved before the frame loop so that loop stays arithmetic. A mono
+        // output still has to carry every app, so the last channel takes the overflow rather than
+        // dropping it.
+        let unused = ((ptr::null_mut::<f32>(), 0_usize), (ptr::null_mut::<f32>(), 0_usize));
+        let mut lanes = [unused; CHANNELS_PER_TAP];
+        let mut lane_count = 0;
 
         for channel in 0..CHANNELS_PER_TAP {
             let source = index * CHANNELS_PER_TAP + channel;
@@ -1162,12 +1481,23 @@ unsafe fn mix(
                 break;
             }
 
-            let (in_pointer, in_stride) = inputs.entries[source];
-            // A mono output still has to carry every app, so the last channel takes the overflow
-            // rather than dropping it.
-            let (out_pointer, out_stride) = outputs.entries[channel.min(outputs.len - 1)];
+            lanes[lane_count] = (
+                inputs.entries[source],
+                outputs.entries[channel.min(outputs.len - 1)],
+            );
+            lane_count += 1;
+        }
 
-            for frame in 0..frames {
+        for frame in 0..frames {
+            // Advanced once per frame rather than once per channel: both channels of one app have
+            // to be scaled by the same value, or the stereo image walks while the slider moves.
+            gain += (target - gain) * GAIN_SLEW;
+
+            if (target - gain).abs() < GAIN_SETTLED {
+                gain = target;
+            }
+
+            for &((in_pointer, in_stride), (out_pointer, out_stride)) in &lanes[..lane_count] {
                 let sample = unsafe { *in_pointer.add(frame * in_stride) };
                 let magnitude = sample.abs();
 
@@ -1176,12 +1506,13 @@ unsafe fn mix(
                 }
 
                 if !is_probing {
-                    let target = unsafe { &mut *out_pointer.add(frame * out_stride) };
-                    *target = (*target + sample * gain).clamp(-1.0, 1.0);
+                    let destination = unsafe { &mut *out_pointer.add(frame * out_stride) };
+                    *destination = (*destination + sample * gain).clamp(-1.0, 1.0);
                 }
             }
         }
 
+        control.set_applied_gain(gain);
         control.observe(peak);
     }
 }
@@ -1311,8 +1642,95 @@ mod tests {
         assert_eq!(MAX_CHANNELS % CHANNELS_PER_TAP, 0);
     }
 
-    /// Syncing an empty process list must tear the engine down rather than leave stale taps
-    /// holding apps that have stopped playing.
+    /// An app that stops playing must not cost every other app its tap. This is the whole reason
+    /// a device switch no longer sounds like a pause: `IsRunningOutput` drops for everything at
+    /// once, and rebuilding on that was the gap.
+    #[test]
+    fn an_app_going_quiet_is_not_worth_a_rebuild() {
+        let built = ["macos:app:com.spotify", "macos:app:com.google.Chrome"];
+
+        assert!(!is_short_a_tap(&[], &built));
+        assert!(!is_short_a_tap(
+            &["macos:app:com.spotify".to_owned()],
+            &built
+        ));
+    }
+
+    /// The one thing that cannot be done without a rebuild.
+    #[test]
+    fn an_app_with_no_tap_forces_a_rebuild() {
+        let built = ["macos:app:com.spotify"];
+
+        assert!(is_short_a_tap(
+            &["macos:app:com.apple.Music".to_owned()],
+            &built
+        ));
+        assert!(is_short_a_tap(&["macos:app:com.spotify".to_owned()], &[]));
+    }
+
+    /// A fresh aggregate must fade in rather than step in, or every rebuild starts with a click.
+    #[test]
+    fn a_new_mix_fades_in_from_silence() {
+        let output = Buffers::new(2, 64, 1.0);
+        let fade = Fade::ducked();
+
+        unsafe { duck(&output.view(), 64, &fade) };
+
+        assert!(output.samples[0] < 0.05, "the mix started at full level");
+        assert!(
+            output.samples[output.samples.len() - 1] > output.samples[0],
+            "the fade never rose"
+        );
+        assert!(
+            output.samples.windows(2).all(|pair| pair[1] >= pair[0] - 1e-6),
+            "the fade is not monotonic"
+        );
+    }
+
+    /// The duck has to actually reach silence within [`FADE_SETTLE`], or the swap it protects
+    /// still lands on audible samples and still clicks.
+    #[test]
+    fn ducking_reaches_silence_within_the_settle_window() {
+        let fade = Fade::ducked();
+
+        // Arrive at full level first, the state a running mix is really in.
+        for _ in 0..40 {
+            let output = Buffers::new(2, 512, 1.0);
+
+            unsafe { duck(&output.view(), 512, &fade) };
+        }
+
+        assert_eq!(fade.current(), 1.0);
+
+        fade.duck();
+
+        // One settle window's worth of frames at 48 kHz.
+        let frames = (FADE_SETTLE.as_secs_f32() * 48_000.0) as usize;
+        let output = Buffers::new(2, frames, 1.0);
+
+        unsafe { duck(&output.view(), frames, &fade) };
+
+        assert!(
+            fade.current() < 0.01,
+            "the duck was still at {} when the swap would have landed",
+            fade.current()
+        );
+    }
+
+    /// Full level is the steady state, so it must cost nothing and colour nothing.
+    #[test]
+    fn a_settled_fade_leaves_the_mix_untouched() {
+        let output = Buffers::new(2, 8, 0.5);
+        let fade = Fade::ducked();
+
+        fade.set_current(1.0);
+
+        unsafe { duck(&output.view(), 8, &fade) };
+
+        assert!(output.samples.iter().all(|sample| *sample == 0.5));
+    }
+
+    /// A fresh engine has nothing to tear down, and an empty sync must stay a no-op.
     #[test]
     fn syncing_nothing_leaves_no_taps() {
         let engine = TapEngine::default();
@@ -1388,6 +1806,59 @@ mod tests {
         unsafe { mix(&input.view(), &output.view(), 4, 4, &controls, false) };
 
         assert!(output.samples.iter().all(|sample| *sample == 0.0));
+    }
+
+    /// A slider move has to arrive as a ramp. The failure this catches is the gain being read once
+    /// per cycle and held flat across it: one Bluetooth buffer is long enough for that step to be
+    /// the zipper the user hears while dragging.
+    #[test]
+    fn a_gain_change_ramps_across_the_buffer_instead_of_stepping() {
+        let input = Buffers::new(2, 512, 1.0);
+        let output = Buffers::new(2, 512, 0.0);
+        let controls = vec![control(1.0, false)];
+
+        controls[0].set_gain(0.0);
+
+        unsafe { mix(&input.view(), &output.view(), 512, 512, &controls, false) };
+
+        let first = output.samples[0];
+        let last = output.samples[output.samples.len() - 1];
+
+        assert!(first > 0.9, "the ramp jumped rather than starting where the gain was");
+        assert!(last < first, "the ramp never moved toward the new gain");
+        assert!(
+            output.samples.windows(2).all(|pair| pair[1] <= pair[0] + 1e-6),
+            "the ramp is not monotonic, so it is not a ramp"
+        );
+    }
+
+    /// The ramp has to arrive, not approach forever. A gain that never quite reaches its target is
+    /// a slider that never quite sets the volume it is showing.
+    #[test]
+    fn the_ramp_settles_on_the_requested_gain() {
+        let controls = vec![control(1.0, false)];
+
+        controls[0].set_gain(0.5);
+
+        for _ in 0..20 {
+            let input = Buffers::new(2, 512, 1.0);
+            let output = Buffers::new(2, 512, 0.0);
+
+            unsafe { mix(&input.view(), &output.view(), 512, 512, &controls, false) };
+        }
+
+        assert_eq!(controls[0].applied_gain(), 0.5);
+    }
+
+    /// Nothing built means nothing to move. The failure this catches is a device switch on a quiet
+    /// Mac reporting an error for an engine that had no taps to rebuild.
+    #[test]
+    fn following_the_output_device_does_nothing_without_taps() {
+        let engine = TapEngine::default();
+
+        engine
+            .follow_default_output()
+            .expect("an engine with no taps has nothing to move");
     }
 
     /// Two apps sum. The failure this catches is a mixer that plays only the last one.

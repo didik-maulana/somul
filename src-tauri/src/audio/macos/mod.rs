@@ -631,6 +631,15 @@ instead.",
         // success there would be a silent no-op — a control that reports working and does
         // nothing — so the write is read back.
         if default_output_device()? == requested {
+            // The switch moved every untapped app. Tapped ones are muted at the hardware and
+            // reach the speakers only through the aggregate, so they move when it is pointed at
+            // the new device and not before.
+            //
+            // A failure here is not the switch failing: the fallback rebuild releases every tap,
+            // which hands the apps back to the hardware at their own level — on the device the
+            // user just chose. Reporting it would put an error under a control that worked.
+            let _ = self.engine.follow_default_output();
+
             return Ok(());
         }
 
