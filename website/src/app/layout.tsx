@@ -24,14 +24,23 @@ const jetbrains = localFont({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE.url),
   title: `${SITE.name} — ${SITE.tagline}`,
   description: SITE.description,
   applicationName: SITE.name,
   keywords: ["per-app volume", "macOS audio mixer", "menu bar", "Core Audio", "Tauri", "Rust"],
+  alternates: { canonical: "/" },
   openGraph: {
     title: `${SITE.name} — ${SITE.tagline}`,
     description: SITE.description,
+    url: SITE.url,
+    siteName: SITE.name,
     type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: `${SITE.name} — ${SITE.tagline}`,
+    description: SITE.description,
   },
   icons: { icon: "/icon.svg" },
 };

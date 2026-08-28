@@ -17,6 +17,7 @@ export const SITE = {
   tagline: "Per-app volume, right in your menu bar.",
   description: "Every app making noise gets its own slider, right in your menu bar.",
   version: APP_VERSION,
+  url: "https://somul.app",
   repo: "https://github.com/didik-maulana/somul",
   download:
     process.env.NEXT_PUBLIC_DOWNLOAD_URL ??
