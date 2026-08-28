@@ -37,7 +37,8 @@
     },
     "macOS": {
       "minimumSystemVersion": "14.4",
-      "entitlements": "entitlements.plist"
+      "entitlements": "entitlements.plist",
+      "signingIdentity": "-"
     }
   },
   "plugins": {
