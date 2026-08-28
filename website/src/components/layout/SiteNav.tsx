@@ -2,6 +2,7 @@
 
 import type React from "react";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { AnimatePresence, motion, useMotionValueEvent, useScroll, useSpring } from "motion/react";
 import { Github, Menu, X } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -12,10 +13,13 @@ import { DURATION, EASE_DECELERATE, EASE_STANDARD } from "@/lib/motion";
 const CONDENSE_AT = 24;
 
 export const SiteNav: React.FC = () => {
+  const pathname = usePathname();
   const [condensed, setCondensed] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const { scrollY, scrollYProgress } = useScroll();
   const progress = useSpring(scrollYProgress, { stiffness: 180, damping: 30, mass: 0.4 });
+
+  const showSectionLinks = pathname === "/";
 
   useMotionValueEvent(scrollY, "change", (value) => setCondensed(value > CONDENSE_AT));
 
@@ -38,24 +42,26 @@ export const SiteNav: React.FC = () => {
         )}
       >
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-3.5 sm:px-10">
-          <a href="#top" className="flex items-center gap-2.5">
+          <a href={showSectionLinks ? "#top" : "/"} className="flex items-center gap-2.5">
             <Logo />
             <span className="text-[15px] font-semibold tracking-tight text-white">{SITE.name}</span>
           </a>
 
-          <ul className="hidden items-center gap-1 md:flex">
-            {NAV_LINKS.map((link) => (
-              <li key={link.href}>
-                <a
-                  href={link.href}
-                  className="group relative block rounded-full px-3.5 py-1.5 text-sm text-ink-400 transition-colors duration-150 hover:text-white"
-                >
-                  {link.label}
-                  <span className="absolute inset-x-3.5 bottom-1 h-px origin-left scale-x-0 bg-brand-400 transition-transform duration-200 group-hover:scale-x-100" />
-                </a>
-              </li>
-            ))}
-          </ul>
+          {showSectionLinks ? (
+            <ul className="hidden items-center gap-1 md:flex">
+              {NAV_LINKS.map((link) => (
+                <li key={link.href}>
+                  <a
+                    href={link.href}
+                    className="group relative block rounded-full px-3.5 py-1.5 text-sm text-ink-400 transition-colors duration-150 hover:text-white"
+                  >
+                    {link.label}
+                    <span className="absolute inset-x-3.5 bottom-1 h-px origin-left scale-x-0 bg-brand-400 transition-transform duration-200 group-hover:scale-x-100" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          ) : null}
 
           <div className="flex items-center gap-1 sm:gap-2">
             <a
@@ -75,25 +81,27 @@ export const SiteNav: React.FC = () => {
             >
               Download
             </a>
-            <button
-              type="button"
-              onClick={() => setMenuOpen((open) => !open)}
-              aria-expanded={menuOpen}
-              aria-controls="site-nav-mobile"
-              aria-label={menuOpen ? "Close menu" : "Open menu"}
-              className="flex h-10 w-10 items-center justify-center rounded-full text-ink-300 transition-colors duration-150 hover:bg-white/6 hover:text-white md:hidden"
-            >
-              {menuOpen ? (
-                <X size={19} strokeWidth={1.7} aria-hidden />
-              ) : (
-                <Menu size={19} strokeWidth={1.7} aria-hidden />
-              )}
-            </button>
+            {showSectionLinks ? (
+              <button
+                type="button"
+                onClick={() => setMenuOpen((open) => !open)}
+                aria-expanded={menuOpen}
+                aria-controls="site-nav-mobile"
+                aria-label={menuOpen ? "Close menu" : "Open menu"}
+                className="flex h-10 w-10 items-center justify-center rounded-full text-ink-300 transition-colors duration-150 hover:bg-white/6 hover:text-white md:hidden"
+              >
+                {menuOpen ? (
+                  <X size={19} strokeWidth={1.7} aria-hidden />
+                ) : (
+                  <Menu size={19} strokeWidth={1.7} aria-hidden />
+                )}
+              </button>
+            ) : null}
           </div>
         </nav>
 
         <AnimatePresence initial={false}>
-          {menuOpen ? (
+          {menuOpen && showSectionLinks ? (
             <motion.div
               id="site-nav-mobile"
               initial={{ height: 0, opacity: 0 }}

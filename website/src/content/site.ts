@@ -174,3 +174,13 @@ export const FAQS: FaqEntry[] = [
       "In your menu bar. No Dock icon, no window to keep open. Click the icon, move a slider, close it.",
   },
 ];
+
+export const NOT_FOUND = {
+  code: "404",
+  title: "This page is muted.",
+  description:
+    "The page you're looking for doesn't exist, or it was moved. Slide the volume back up to take you home.",
+  row: "somul.app/this-page",
+  restoredTitle: "Volume restored.",
+  restoredDescription: "Sound is back on the homepage. Taking you there now.",
+} as const;
