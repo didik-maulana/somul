@@ -74,12 +74,16 @@ ask again. Updates are checked at launch and installed only when you say so.
 
 ```sh
 npm ci
-npm run tauri build
+npm run build:local
 ```
 
 A build signed with your own identity needs no quarantine removal and keeps the permission across
 rebuilds. [`scripts/create-dev-signing-identity.sh`](scripts/create-dev-signing-identity.sh)
 creates one.
+
+`build:local` is `tauri build` without the updater artifacts. Those are signed with a release key
+that only the maintainer holds, so asking for them anywhere else ends a ten-minute build with a
+complaint about a key you are not supposed to have.
 
 ## Development
 

@@ -35,7 +35,7 @@ Create a stable local signing identity once, then build with it:
 
 ```sh
 ./scripts/create-dev-signing-identity.sh
-APPLE_SIGNING_IDENTITY="Somul Dev" npm run tauri build
+APPLE_SIGNING_IDENTITY="Somul Dev" npm run build:local
 ```
 
 The identity belongs to no Apple team and cannot be distributed. Its only job is to say "this is
@@ -50,6 +50,7 @@ print it by default.
 | Script | What it does |
 | :--- | :--- |
 | `npm run verify` | Typecheck, lint, Vitest, Clippy, and `cargo test`. The gate every PR must pass. |
+| `npm run build:local` | `tauri build` with the updater artifacts turned off. Signing those needs the release key, which lives in CI and nowhere else, so a plain `tauri build` ends a full release compile complaining about a key no contributor has. The override is `src-tauri/tauri.local.conf.json`; the committed config keeps them on so a real release cannot ship unsigned. |
 | `npm run test:watch` | Vitest in watch mode. |
 | `npm run audit:contrast` | Checks the colour tokens in `src/styles/index.css` against WCAG contrast thresholds. |
 | `scripts/reset-local-state.sh` | Wipes Somul's settings, memory, and TCC grant for a clean first-run test. |
