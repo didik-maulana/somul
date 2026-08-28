@@ -21,28 +21,6 @@ import type {
   UpdateSnapshot,
 } from '@/types/ipc';
 
-/**
- * Mirrors the guard on the Rust `SessionId`. An all-digit identifier is a PID or a raw backend
- * index, and neither is stable enough to key a write — the OS reuses both.
- */
-export const parseSessionId = (raw: string): SessionId => {
-  const trimmed = raw.trim();
-
-  if (trimmed === '') {
-    throw new Error('Session identifier is empty');
-  }
-
-  if (/^\d+$/.test(trimmed)) {
-    throw new Error(
-      `Session identifier "${trimmed}" is all digits — a PID is not a session key`,
-    );
-  }
-
-  return trimmed as SessionId;
-};
-
-export const parseDeviceId = (raw: string): DeviceId => raw as DeviceId;
-
 const AUDIO_ERROR_KINDS = [
   'sessionNotFound',
   'deviceNotFound',
@@ -52,7 +30,7 @@ const AUDIO_ERROR_KINDS = [
   'backendFailure',
 ] as const;
 
-export const isAudioError = (candidate: unknown): candidate is AudioError => {
+const isAudioError = (candidate: unknown): candidate is AudioError => {
   if (typeof candidate !== 'object' || candidate === null || !('kind' in candidate)) {
     return false;
   }
@@ -241,14 +219,14 @@ export const openAudioPermissionSettings = (): Promise<void> =>
   mutation('open_audio_permission_settings');
 
 /** Fires every time the tray puts the panel on screen. */
-export const PANEL_SHOWN_EVENT = 'panel://shown';
+const PANEL_SHOWN_EVENT = 'panel://shown';
 
 export const onPanelShown = (onEvent: () => void): Promise<UnlistenFn> =>
   listen(PANEL_SHOWN_EVENT, () => {
     onEvent();
   });
 
-export const AUDIO_EVENT = {
+const AUDIO_EVENT = {
   sessionsChanged: 'audio://sessions-changed',
   capabilitiesChanged: 'audio://capabilities-changed',
   masterChanged: 'audio://master-changed',
