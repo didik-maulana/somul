@@ -1,5 +1,5 @@
 import { useState, type FC, type ReactNode } from "react";
-import { ChevronLeft, ShieldCheck } from "lucide-react";
+import { Bug, ChevronLeft, Code, Globe, ShieldCheck } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
@@ -8,6 +8,7 @@ import { ThemeSwitcher } from "@/features/settings/components/ThemeSwitcher";
 import { UpdateAction } from "@/features/update/components/UpdateAction";
 import { describeUpdate } from "@/features/update/lib/describeUpdate";
 import type { UpdateStatus } from "@/features/update/types";
+import type { AboutLink } from "@/lib/ipc";
 import type { AppSettings } from "@/types/ipc";
 
 export interface SettingsViewProps {
@@ -19,8 +20,15 @@ export interface SettingsViewProps {
   onUpdateCheck: () => void;
   onUpdateInstall: () => void;
   onUpdateRestart: () => void;
+  onOpenAboutLink: (link: AboutLink) => void;
   onClose: () => void;
 }
+
+const ABOUT_LINKS: { link: AboutLink; label: string; Icon: typeof Globe }[] = [
+  { link: "website", label: "Website", Icon: Globe },
+  { link: "source", label: "Source code", Icon: Code },
+  { link: "issues", label: "Report an issue", Icon: Bug },
+];
 
 const Row: FC<{ label: string; hint?: string; children: ReactNode }> = ({
   label,
@@ -45,6 +53,7 @@ export const SettingsView: FC<SettingsViewProps> = ({
   onUpdateCheck,
   onUpdateInstall,
   onUpdateRestart,
+  onOpenAboutLink,
   onClose,
 }) => {
   const [isRecordingHotkey, setIsRecordingHotkey] = useState(false);
@@ -146,6 +155,30 @@ export const SettingsView: FC<SettingsViewProps> = ({
             onInstall={onUpdateInstall}
             onRestart={onUpdateRestart}
           />
+        </Row>
+
+        {/* Icons rather than three labelled buttons: the panel is 360px wide, and a row whose
+            control takes half of it stops reading as a row. The version itself is not repeated
+            here — the footer carries it on every screen, including this one. */}
+        <Row label="About" hint="Free and open source">
+          <div className="flex shrink-0 items-center gap-0.5">
+            {ABOUT_LINKS.map(({ link, label, Icon }) => (
+              <Button
+                key={link}
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                title={label}
+                aria-label={label}
+                className="transition-transform active:scale-95"
+                onClick={() => {
+                  onOpenAboutLink(link);
+                }}
+              >
+                <Icon size={12} strokeWidth={2} aria-hidden="true" />
+              </Button>
+            ))}
+          </div>
         </Row>
       </div>
 

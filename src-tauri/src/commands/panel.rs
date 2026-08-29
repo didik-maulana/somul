@@ -73,6 +73,52 @@ pub fn open_audio_permission_settings() -> Result<(), crate::audio::AudioError> 
     Ok(())
 }
 
+/// One of Somul's own pages, named rather than passed as a URL.
+///
+/// `open` launches whatever it is handed — a file path, a custom scheme, another app — so a
+/// command taking a string from the WebView opens a door far wider than three links need. The
+/// set lives here, and the panel picks from it.
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AboutLink {
+    Website,
+    Source,
+    Issues,
+}
+
+impl AboutLink {
+    fn url(self) -> &'static str {
+        match self {
+            Self::Website => "https://somul.app",
+            Self::Source => "https://github.com/didik-maulana/somul",
+            Self::Issues => "https://github.com/didik-maulana/somul/issues/new",
+        }
+    }
+}
+
+/// Opens one of those pages in the default browser.
+#[tauri::command]
+pub fn open_about_link(link: AboutLink) -> Result<(), crate::audio::AudioError> {
+    let url = link.url();
+
+    #[cfg(all(target_os = "macos", not(test)))]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .spawn()
+            .map_err(|error| {
+                crate::audio::AudioError::BackendFailure(format!("could not open {url}: {error}"))
+            })?;
+    }
+
+    #[cfg(not(all(target_os = "macos", not(test))))]
+    {
+        let _ = url;
+    }
+
+    Ok(())
+}
+
 /// Restarts Somul into a new process.
 ///
 /// The updater's "Restart now": an installed update sits on disk while the old build keeps

@@ -33,6 +33,7 @@ const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {})
   const onUpdateCheck = vi.fn();
   const onUpdateInstall = vi.fn();
   const onUpdateRestart = vi.fn();
+  const onOpenAboutLink = vi.fn();
   const onClose = vi.fn();
 
   render(
@@ -45,6 +46,7 @@ const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {})
       onUpdateCheck={onUpdateCheck}
       onUpdateInstall={onUpdateInstall}
       onUpdateRestart={onUpdateRestart}
+      onOpenAboutLink={onOpenAboutLink}
       onClose={onClose}
       {...overrides}
     />,
@@ -56,6 +58,7 @@ const renderView = (overrides: Partial<Parameters<typeof SettingsView>[0]> = {})
     onUpdateCheck,
     onUpdateInstall,
     onUpdateRestart,
+    onOpenAboutLink,
     onClose,
     user: userEvent.setup(),
   };
@@ -124,6 +127,7 @@ describe('SettingsView', () => {
         onUpdateCheck={vi.fn()}
         onUpdateInstall={vi.fn()}
         onUpdateRestart={vi.fn()}
+        onOpenAboutLink={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -140,6 +144,7 @@ describe('SettingsView', () => {
         onUpdateCheck={vi.fn()}
         onUpdateInstall={vi.fn()}
         onUpdateRestart={vi.fn()}
+        onOpenAboutLink={vi.fn()}
         onClose={vi.fn()}
       />,
     );
@@ -241,6 +246,14 @@ describe('SettingsView', () => {
     await user.click(screen.getByRole('button', { name: 'Open Settings' }));
 
     expect(onOpenAudioPermission).toHaveBeenCalledOnce();
+  });
+
+  it('hands each About icon to the opener by name', async () => {
+    const { onOpenAboutLink, user } = renderView();
+
+    await user.click(screen.getByRole('button', { name: 'Report an issue' }));
+
+    expect(onOpenAboutLink).toHaveBeenCalledWith('issues');
   });
 
   it('closes back to the mixer', async () => {

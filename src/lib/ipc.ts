@@ -218,6 +218,13 @@ export const relaunchApp = (): Promise<void> => mutation('relaunch_app');
 export const openAudioPermissionSettings = (): Promise<void> =>
   mutation('open_audio_permission_settings');
 
+/** Somul's own pages, named rather than sent as URLs — the addresses live in Rust. */
+export type AboutLink = 'website' | 'source' | 'issues';
+
+/** Opens one of them in the default browser. */
+export const openAboutLink = (link: AboutLink): Promise<void> =>
+  mutation('open_about_link', { link });
+
 /** Fires every time the tray puts the panel on screen. */
 const PANEL_SHOWN_EVENT = 'panel://shown';
 

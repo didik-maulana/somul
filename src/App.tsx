@@ -15,7 +15,7 @@ import { useVolumeCommit } from "@/features/mixer/hooks/useVolumeCommit";
 import { UpdateNotice } from "@/features/update/components/UpdateNotice";
 import { useUpdate } from "@/features/update/hooks/useUpdate";
 import { DEFAULT_HOTKEY } from "@/lib/accelerator";
-import { openAudioPermissionSettings } from "@/lib/ipc";
+import { openAboutLink, openAudioPermissionSettings } from "@/lib/ipc";
 import { useAudioStore } from "@/stores/audioStore";
 import type { AudioSession } from "@/types/ipc";
 
@@ -155,6 +155,9 @@ export const App: FC = () => {
             onUpdateCheck={update.check}
             onUpdateInstall={update.install}
             onUpdateRestart={update.restart}
+            onOpenAboutLink={(link) => {
+              void openAboutLink(link);
+            }}
             onClose={() => {
               setIsShowingSettings(false);
             }}
