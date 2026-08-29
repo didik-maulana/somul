@@ -29,7 +29,6 @@ export const SITE = {
     process.env.NEXT_PUBLIC_DOWNLOAD_URL ??
     "https://github.com/didik-maulana/somul/releases/latest/download/Somul.dmg",
   requirement: "macOS 14.4+ · Universal binary",
-  quarantineCommand: "xattr -dr com.apple.quarantine /Applications/Somul.app",
   hotkey: ["⌘", "Shift", "V"],
 } as const;
 
@@ -158,10 +157,10 @@ export const PRIVACY_FACTS: PrivacyFact[] = [
 
 export const FAQS: FaqEntry[] = [
   {
-    id: "gatekeeper",
-    question: "Why does macOS say Somul can't be opened?",
+    id: "permission",
+    question: "Why does Somul ask to record audio?",
     answer:
-      "Somul isn't notarized by Apple yet, so Gatekeeper blocks it the first time you open it. The app isn't damaged. The first launch steps below clear the flag once, and macOS stops asking.",
+      "Per-app volume runs on Core Audio process taps, and macOS counts a tap as audio capture. Nothing is recorded, stored, or sent anywhere — the sound is mixed on your Mac and played straight back out. Without the grant Somul still moves the master volume, but not one app on its own.",
   },
   {
     id: "free",

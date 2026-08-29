@@ -6,7 +6,6 @@ import { ArrowDown, Github } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { SITE } from "@/content/site";
 import { AmbientWaveform } from "@/features/hero/components/AmbientWaveform";
-import { QuarantineNotice } from "@/features/download/components/QuarantineNotice";
 import { revealUp, staggerParent, viewportOnce } from "@/lib/motion";
 
 export const DownloadSection: React.FC = () => (
@@ -47,10 +46,6 @@ export const DownloadSection: React.FC = () => (
       >
         {SITE.requirement}
       </motion.p>
-
-      <motion.div variants={revealUp} className="flex w-full justify-center">
-        <QuarantineNotice />
-      </motion.div>
     </motion.div>
   </section>
 );

@@ -527,14 +527,14 @@ The version the updater compares against comes from `tauri.conf.json`, and it mu
 `Cargo.toml` and the release tag. `.github/workflows/release.yml` checks this, and refuses to run
 without the updater signing key rather than publishing an update no installed copy would accept.
 
-Releases are ad-hoc signed, through `signingIdentity` in `tauri.conf.json`. Without it Tauri signs
-nothing at all unless `APPLE_SIGNING_IDENTITY` is set, and an unsigned bundle gives TCC no stable
+`signingIdentity` in `tauri.conf.json` is `-`, an ad-hoc signature, and it is the floor rather than
+what a release ships. Without any signature Tauri drops the entitlements, and TCC has no stable
 identity to attach the audio-capture grant to: every tap re-prompts, and allowing it never sticks.
-The ad-hoc signature also carries the entitlements, which an unsigned bundle drops.
 
-Current releases are not notarized. Users remove the quarantine flag once, and macOS forgets the
-audio-capture grant on every update because the signature changes. A Developer ID signature and
-notarization would fix both.
+Releases override that floor with `APPLE_SIGNING_IDENTITY`, which takes precedence over the config
+value, and are notarized through an App Store Connect API key (`APPLE_API_ISSUER`, `APPLE_API_KEY`,
+`APPLE_API_KEY_PATH`). A Developer ID signature is stable across versions, so the grant survives an
+update; notarization is what lets Gatekeeper open the app on a Mac that did not build it.
 
 ### Other platforms
 

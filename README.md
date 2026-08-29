@@ -52,23 +52,15 @@ Somul needs **macOS 14.4 or newer**.
 
 1. Download `Somul.dmg` from the [latest release](https://github.com/didik-maulana/somul/releases/latest).
 2. Open it and drag Somul to Applications.
-3. Somul is not notarized yet, so remove the quarantine flag once:
-
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/Somul.app
-   ```
-
-   Or, after the first blocked launch, go to **System Settings → Privacy & Security** and
-   choose **Open Anyway**.
-
-4. Allow Somul under **System Settings → Privacy & Security → Audio Recording** when asked.
+3. Allow Somul under **System Settings → Privacy & Security → Audio Recording** when asked.
 
 Per-app volume runs on Core Audio process taps, and macOS treats a tap as audio capture. Without
 that permission Somul still controls the master volume and lists apps, but cannot move them
 individually.
 
-Because the build is unsigned, macOS forgets the audio permission on every update and Somul will
-ask again. Updates are checked at launch and installed only when you say so.
+Releases are signed with a Developer ID and notarized, so the grant survives an update and macOS
+opens the app without a detour through Privacy & Security. Updates are checked at launch and
+installed only when you say so.
 
 ### Building it yourself
 
@@ -77,9 +69,10 @@ npm ci
 npm run build:local
 ```
 
-A build signed with your own identity needs no quarantine removal and keeps the permission across
-rebuilds. [`scripts/create-dev-signing-identity.sh`](scripts/create-dev-signing-identity.sh)
-creates one.
+A build signed with your own identity keeps the audio permission across rebuilds; an ad-hoc one
+loses it every time the binary changes.
+[`scripts/create-dev-signing-identity.sh`](scripts/create-dev-signing-identity.sh) creates an
+identity to sign with.
 
 `build:local` is `tauri build` without the updater artifacts. Those are signed with a release key
 that only the maintainer holds, so asking for them anywhere else ends a ten-minute build with a
