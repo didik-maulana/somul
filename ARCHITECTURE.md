@@ -114,7 +114,7 @@ silence. That makes denial indistinguishable from a quiet Mac from inside the au
 * macOS lists which processes are producing output right now, so an app in the list is playing.
 * A tap that hears nothing while its app is playing is a tap macOS is feeding silence.
 * Once capture has worked on this machine, a marker file under
-  `~/Library/Application Support/com.somul.app/capture-proven` records it, because that ambiguity
+  `~/Library/Application Support/app.somul.mixer/capture-proven` records it, because that ambiguity
   is gone for good.
 
 While capture is unproven the engine rebuilds its taps every three seconds to re-ask macOS, and

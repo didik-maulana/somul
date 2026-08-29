@@ -15,7 +15,7 @@
 
 set -euo pipefail
 
-BUNDLE_ID="com.somul.app"
+BUNDLE_ID="app.somul.mixer"
 should_uninstall=false
 
 for argument in "$@"; do

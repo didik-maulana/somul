@@ -40,7 +40,7 @@ use crate::audio::AudioError;
 
 /// Must match `identifier` in `tauri.conf.json`. Somul is an audio client the moment the mixer's
 /// aggregate device opens, so it appears in the process list alongside everything else.
-const OWN_BUNDLE_ID: &str = "com.somul.app";
+const OWN_BUNDLE_ID: &str = "app.somul.mixer";
 
 /// How far up the parent chain to look for the owning app.
 ///

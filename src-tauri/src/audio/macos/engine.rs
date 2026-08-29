@@ -165,7 +165,7 @@ fn capture_proof_path() -> Option<std::path::PathBuf> {
 
     Some(
         std::path::PathBuf::from(home)
-            .join("Library/Application Support/com.somul.app")
+            .join("Library/Application Support/app.somul.mixer")
             .join("capture-proven"),
     )
 }
@@ -1201,7 +1201,7 @@ fn create_aggregate(output_uid: &str, tap_uids: &[&str]) -> Result<AudioObjectID
         (
             "uid",
             value_string(&format!(
-                "com.somul.mixer.{}.{serial}",
+                "app.somul.mixer.aggregate.{}.{serial}",
                 std::process::id()
             )),
         ),
