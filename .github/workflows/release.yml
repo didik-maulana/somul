@@ -125,3 +125,18 @@ jobs:
           # 404s and every installed copy reports that it cannot reach the update server.
           includeUpdaterJson: true
           args: --target universal-apple-darwin
+
+      # tauri-action notarizes the .app and then wraps it in a disk image it only signs, so the
+      # file a user downloads carries no ticket and Gatekeeper turns it away on first open. The
+      # DMG is already uploaded by the step above, so this replaces that asset with the stapled
+      # one rather than adding a second.
+      - name: Notarize and staple the DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          dmg="$(ls src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg)"
+          ./scripts/notarize-dmg.sh "$dmg"
+          gh release upload "${{ inputs.tag }}" "$dmg" --clobber

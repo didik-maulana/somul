@@ -244,3 +244,13 @@ Releases are built, signed, and published from the maintainer's machine. The upd
 key is deliberately kept out of CI, and `.github/workflows/release.yml` runs only when triggered
 by hand. Contributors do not need to do anything for a release; merged changes ship with the next
 one.
+
+A release built by hand needs one step `tauri build` does not do. It notarizes the .app and then
+wraps it in a disk image it only signs, so the DMG a user downloads carries no ticket and
+Gatekeeper turns it away on first open — while every check run against the .app inside passes.
+`./scripts/notarize-dmg.sh <path-to-dmg>` closes that gap and refuses to succeed until `spctl`
+accepts the image. The workflow runs it too.
+
+`.env.release.example` is the shape of the environment a release build needs — the signing
+identity, the notarization key, and where the updater's private key and its password are read
+from. Copy it outside the tree before filling it in.
