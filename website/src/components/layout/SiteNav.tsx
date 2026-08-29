@@ -30,10 +30,6 @@ export const SiteNav: React.FC = () => {
       transition={{ duration: DURATION.slow, ease: EASE_STANDARD }}
       className="fixed inset-x-0 top-0 z-50"
     >
-      <motion.div
-        className="h-px origin-left bg-gradient-to-r from-brand-500 to-signal-300"
-        style={{ scaleX: progress }}
-      />
       <div
         className={cn(
           "transition-colors duration-200",
@@ -41,6 +37,10 @@ export const SiteNav: React.FC = () => {
           menuOpen ? "bg-ink-950/95" : condensed && "bg-ink-950/70",
         )}
       >
+        <motion.div
+          className="h-px origin-left bg-gradient-to-r from-brand-500 to-signal-300"
+          style={{ scaleX: progress }}
+        />
         <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-3.5 sm:px-10">
           <a href={showSectionLinks ? "#top" : "/"} className="flex items-center gap-2.5">
             <Logo />
