@@ -39,6 +39,7 @@ const renderList = (overrides: Partial<Parameters<typeof MixerList>[0]> = {}) =>
       capabilities={fullPerApp}
       sessions={[session('mock:s:1', 'Spotify')]}
       draggingSessionIds={new Set<SessionId>()}
+      isPeakMeterEnabled
       onVolumeChange={vi.fn()}
       onVolumeCommit={vi.fn()}
       onMuteToggle={vi.fn()}
@@ -130,5 +131,11 @@ describe('MixerList', () => {
     renderList({ draggingSessionIds: new Set(['mock:s:1' as SessionId]) });
 
     expect(screen.getByTestId('app-audio-row')).toHaveAttribute('data-dragging', 'true');
+  });
+
+  it('drops the meter when the user has switched it off, even where the platform has one', () => {
+    renderList({ isPeakMeterEnabled: false });
+
+    expect(screen.queryByTestId('peak-meter')).toBeNull();
   });
 });

@@ -458,10 +458,11 @@ wallpaper. The resolved theme is also sent to the native window through `set_pan
 
 ```ts
 interface AppSettings {
-  schemaVersion: number;                       // currently 2
+  schemaVersion: number;                       // currently 3
   hotkey: string;                              // "CmdOrCtrl+Shift+V"
   theme: 'dark' | 'light' | 'system';
   shouldLaunchAtLogin: boolean;
+  shouldShowPeakMeter: boolean;                // default true
   routingPresets: Record<string, string>;      // processName -> deviceId, reserved
   volumeMemory: Record<string, number>;        // processName -> last volume
   muteMemory: Record<string, boolean>;         // processName -> last mute state
@@ -475,8 +476,15 @@ preserves whatever memory is on disk.
 Migration edits the stored map in place and preserves unknown keys, so a user who downgrades and
 upgrades again does not lose data written by the newer build.
 
-Settings side effects (registering the hotkey, toggling launch at login) run before the store is
-written. A change the OS refuses is never persisted as though it had worked.
+Settings side effects (registering the hotkey, toggling launch at login, telling the meter loop
+whether peaks are wanted) run before the store is written. A change the OS refuses is never
+persisted as though it had worked.
+
+`shouldShowPeakMeter` reaches the meter gate as well as the panel. Off, the loop skips the peak
+read and the emit entirely rather than publishing to nobody — a switch that only hid the bar while
+still costing a backend read and a serialised event thirty times a second would misdescribe what
+it turns off. The value is read at startup, before the loop begins, so a meter switched off last
+session never emits a batch on this one.
 
 ## 10. Security
 

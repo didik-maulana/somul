@@ -13,6 +13,8 @@ export interface MixerListProps {
   capabilities: PlatformCapabilities | null;
   sessions: AudioSession[];
   draggingSessionIds: ReadonlySet<SessionId>;
+  /** The user's setting. Gates the meter on top of whatever the platform can do. */
+  isPeakMeterEnabled: boolean;
   onVolumeChange: (session: AudioSession, volume: number) => void;
   onVolumeCommit: (session: AudioSession, volume: number) => void;
   onMuteToggle: (session: AudioSession) => void;
@@ -30,6 +32,7 @@ export const MixerList: React.FC<MixerListProps> = ({
   capabilities,
   sessions,
   draggingSessionIds,
+  isPeakMeterEnabled,
   onVolumeChange,
   onVolumeCommit,
   onMuteToggle,
@@ -37,7 +40,9 @@ export const MixerList: React.FC<MixerListProps> = ({
   onOpenAudioPermission,
 }) => {
   // Ahead of every branch below, because the branches return early and a hook cannot.
-  usePeakMeters(capabilities?.hasPerAppMeter ?? false);
+  const hasMeter = (capabilities?.hasPerAppMeter ?? false) && isPeakMeterEnabled;
+
+  usePeakMeters(hasMeter);
 
   if (capabilities === null) {
     return <div data-testid="mixer-loading" className="flex-1" aria-busy="true" />;
@@ -81,7 +86,7 @@ export const MixerList: React.FC<MixerListProps> = ({
               <AppAudioRow
                 session={session}
                 isDragging={draggingSessionIds.has(session.sessionId)}
-                hasMeter={capabilities.hasPerAppMeter}
+                hasMeter={hasMeter}
                 onVolumeChange={(volume) => {
                   onVolumeChange(session, volume);
                 }}

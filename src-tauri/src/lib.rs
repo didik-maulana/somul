@@ -98,6 +98,10 @@ pub fn run() {
                 ));
             let gate = std::sync::Arc::new(meter::MeterGate::new());
 
+            // Read before the loop starts, so a meter switched off last session never publishes a
+            // single batch on this one.
+            gate.set_peaks_wanted(settings::load(app.handle()).should_show_peak_meter);
+
             app.manage(commands::AudioState::new(
                 std::sync::Arc::clone(&backend),
                 std::sync::Arc::clone(&gate),

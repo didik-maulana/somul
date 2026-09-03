@@ -5,8 +5,9 @@
 //! so a rejected change is never persisted as though it had worked.
 
 use serde::Serialize;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Runtime, State};
 
+use crate::commands::AudioState;
 use crate::settings::{self, AppSettings};
 use crate::shortcut::{self, HotkeyStatus};
 
@@ -29,6 +30,7 @@ pub fn get_settings<R: Runtime>(app: AppHandle<R>) -> AppSettings {
 #[tauri::command]
 pub fn update_settings<R: Runtime>(
     app: AppHandle<R>,
+    state: State<'_, AudioState>,
     settings: AppSettings,
 ) -> Result<SettingsUpdate, String> {
     let previous = crate::settings::load(&app);
@@ -38,6 +40,7 @@ pub fn update_settings<R: Runtime>(
 
     let hotkey_warning = apply_hotkey(&app, &previous, &mut applied);
     apply_launch_at_login(&app, &previous, &applied);
+    state.set_peaks_wanted(applied.should_show_peak_meter);
 
     crate::settings::save(&app, &applied)?;
 

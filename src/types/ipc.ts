@@ -106,6 +106,8 @@ export interface AppSettings {
   hotkey: string;
   theme: Theme;
   shouldLaunchAtLogin: boolean;
+  /** Whether app rows carry a peak meter. Off also stops the backend publishing peaks at all. */
+  shouldShowPeakMeter: boolean;
   /** processName -> deviceId. Reserved for per-app routing. */
   routingPresets: Record<string, string>;
   /**

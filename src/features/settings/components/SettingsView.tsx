@@ -121,6 +121,16 @@ export const SettingsView: FC<SettingsViewProps> = ({
           />
         </Row>
 
+        <Row label="Peak meters" hint="Show a level bar on each app row">
+          <Switch
+            checked={settings.shouldShowPeakMeter}
+            aria-label="Peak meters"
+            onCheckedChange={(shouldShowPeakMeter) => {
+              onSettingsChange({ ...settings, shouldShowPeakMeter });
+            }}
+          />
+        </Row>
+
         {/* Always here, whatever the permission currently is.
             
             Somul cannot tell a withheld permission from a Mac where nothing happens to be playing:

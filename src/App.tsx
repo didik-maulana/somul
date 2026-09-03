@@ -167,6 +167,7 @@ export const App: FC = () => {
             capabilities={capabilities}
             sessions={sessions.sessions}
             draggingSessionIds={draggingSessionIds}
+            isPeakMeterEnabled={settings.settings?.shouldShowPeakMeter ?? true}
             onVolumeChange={handleSessionVolumeChange}
             onVolumeCommit={handleSessionVolumeCommit}
             onMuteToggle={(session) => {

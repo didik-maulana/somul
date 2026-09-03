@@ -71,4 +71,9 @@ impl AudioState {
     pub fn set_panel_visible(&self, is_visible: bool) {
         self.gate.set_visible(is_visible);
     }
+
+    /// Flipping this to false leaves the loop running but stops it reading and publishing peaks.
+    pub fn set_peaks_wanted(&self, are_wanted: bool) {
+        self.gate.set_peaks_wanted(are_wanted);
+    }
 }

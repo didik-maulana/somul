@@ -82,15 +82,37 @@ fn is_other_device(previous: &MasterState, current: &MasterState) -> bool {
 }
 
 /// Shared visibility flag. `set_panel_visibility` writes it; the loop blocks on it.
-#[derive(Default)]
+///
+/// Also carries whether peaks are wanted at all. Turning the meter off in settings has to reach
+/// the loop, not just the panel: a hidden meter that still costs a backend read and a serialised
+/// event thirty times a second is a setting that lies about what it switches off.
 pub struct MeterGate {
     is_visible: Mutex<bool>,
     changed: Condvar,
+    are_peaks_wanted: AtomicBool,
+}
+
+impl Default for MeterGate {
+    fn default() -> Self {
+        Self {
+            is_visible: Mutex::new(false),
+            changed: Condvar::new(),
+            are_peaks_wanted: AtomicBool::new(true),
+        }
+    }
 }
 
 impl MeterGate {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn are_peaks_wanted(&self) -> bool {
+        self.are_peaks_wanted.load(Ordering::Acquire)
+    }
+
+    pub fn set_peaks_wanted(&self, are_wanted: bool) {
+        self.are_peaks_wanted.store(are_wanted, Ordering::Release);
     }
 
     fn guard(&self) -> MutexGuard<'_, bool> {
@@ -200,8 +222,10 @@ impl MeterLoop {
 
                     let deadline = Instant::now() + TICK;
 
-                    if let Ok(peaks) = backend.read_peaks() {
-                        emitter.emit_peaks(&peaks);
+                    if gate.are_peaks_wanted() {
+                        if let Ok(peaks) = backend.read_peaks() {
+                            emitter.emit_peaks(&peaks);
+                        }
                     }
 
                     if tick % MASTER_POLL_EVERY_TICKS == 0 {
@@ -527,6 +551,53 @@ mod tests {
     fn runs_at_thirty_hertz() {
         assert_eq!(METER_HZ, 30);
         assert_eq!(TICK, Duration::from_nanos(33_333_333));
+    }
+
+    /// The setting has to reach the loop, not just the panel.
+    ///
+    /// Hiding the meter while still reading peaks and serialising an event thirty times a second
+    /// would make the switch a lie about what it turns off.
+    #[test]
+    fn publishes_no_peaks_while_the_meter_is_switched_off() {
+        let harness = start();
+
+        harness.gate.set_peaks_wanted(false);
+        harness.gate.set_visible(true);
+
+        thread::sleep(TICK * 6);
+
+        let mut loop_under_test = harness.meter;
+        loop_under_test.stop();
+
+        assert!(
+            harness.emitter.batches().is_empty(),
+            "the meter was switched off and still published peaks"
+        );
+        assert!(
+            !harness.emitter.masters().is_empty() || !harness.emitter.session_batches().is_empty(),
+            "switching the meter off stopped the rest of the loop as well"
+        );
+    }
+
+    /// Switching it back on must not need a restart — the panel is open while the user flips it.
+    #[test]
+    fn resumes_publishing_when_the_meter_is_switched_back_on() {
+        let harness = start();
+
+        harness.gate.set_peaks_wanted(false);
+        harness.gate.set_visible(true);
+
+        thread::sleep(TICK * 4);
+        harness.gate.set_peaks_wanted(true);
+        thread::sleep(TICK * 4);
+
+        let mut loop_under_test = harness.meter;
+        loop_under_test.stop();
+
+        assert!(
+            !harness.emitter.batches().is_empty(),
+            "peaks never resumed after the meter was switched back on"
+        );
     }
 
     /// The drift guard. A tick's work must come out of its sleep, not land on top of it.

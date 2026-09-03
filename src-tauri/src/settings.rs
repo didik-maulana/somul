@@ -17,7 +17,7 @@ use tauri_plugin_store::StoreExt;
 use crate::shortcut::DEFAULT_HOTKEY;
 
 /// Bumped on every breaking change. Each step gets a branch in [`migrate`].
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 
 /// The store file inside the platform config directory.
 pub const SETTINGS_FILE: &str = "settings.json";
@@ -37,6 +37,9 @@ pub struct AppSettings {
     pub hotkey: String,
     pub theme: Theme,
     pub should_launch_at_login: bool,
+    /// Whether app rows carry a peak meter. On by default — the meter is the reason most people
+    /// can tell which row is the one making noise.
+    pub should_show_peak_meter: bool,
     /// processName -> deviceId (v1.1).
     pub routing_presets: BTreeMap<String, String>,
     /// processName -> last volume scalar. Written by the audio path, not by the settings view —
@@ -53,6 +56,7 @@ impl Default for AppSettings {
             hotkey: DEFAULT_HOTKEY.to_owned(),
             theme: Theme::System,
             should_launch_at_login: false,
+            should_show_peak_meter: true,
             routing_presets: BTreeMap::new(),
             volume_memory: BTreeMap::new(),
             mute_memory: BTreeMap::new(),
@@ -83,6 +87,12 @@ pub fn migrate(mut stored: Map<String, Value>) -> Map<String, Value> {
 
     if stored_version(&stored) < 2 {
         insert_missing(&mut stored, "muteMemory", Value::Object(Map::new()));
+    }
+
+    // Defaults to on for an existing install as well as a new one. The meter shipped enabled, so
+    // an upgrade that silently turned it off would read as the feature having been removed.
+    if stored_version(&stored) < 3 {
+        insert_missing(&mut stored, "shouldShowPeakMeter", Value::from(true));
     }
 
     stored.insert(
@@ -119,6 +129,10 @@ pub fn from_stored(stored: &Map<String, Value>) -> AppSettings {
             .get("shouldLaunchAtLogin")
             .and_then(Value::as_bool)
             .unwrap_or(defaults.should_launch_at_login),
+        should_show_peak_meter: stored
+            .get("shouldShowPeakMeter")
+            .and_then(Value::as_bool)
+            .unwrap_or(defaults.should_show_peak_meter),
         routing_presets: string_map(stored.get("routingPresets")),
         volume_memory: scalar_map(stored.get("volumeMemory")),
         mute_memory: bool_map(stored.get("muteMemory")),
@@ -263,6 +277,27 @@ mod tests {
         }
     }
 
+    /// The meter shipped enabled, so an upgrade that silently switched it off would read as the
+    /// feature having been removed rather than as a default.
+    #[test]
+    fn an_upgraded_store_keeps_the_peak_meter_on() {
+        let stored = serde_json::json!({ "schemaVersion": 2, "hotkey": "Cmd+Shift+V" });
+        let migrated = migrate(stored.as_object().expect("object").clone());
+
+        assert!(from_stored(&migrated).should_show_peak_meter);
+    }
+
+    #[test]
+    fn a_stored_preference_to_hide_the_meter_survives_migration() {
+        let stored = serde_json::json!({
+            "schemaVersion": 2,
+            "shouldShowPeakMeter": false,
+        });
+        let migrated = migrate(stored.as_object().expect("object").clone());
+
+        assert!(!from_stored(&migrated).should_show_peak_meter);
+    }
+
     #[test]
     fn migrates_an_empty_store_to_the_current_version() {
         let migrated = migrate(Map::new());
@@ -349,8 +384,12 @@ mod tests {
 
     /// v1 shipped without mute memory. Upgrading must add it without disturbing the volumes a
     /// user already accumulated.
+    ///
+    /// Asserts against `CURRENT_SCHEMA_VERSION` rather than the version that followed v1: what
+    /// this pins is that an old store arrives intact at whatever the current schema is, and
+    /// naming one version froze the test to the day it was written.
     #[test]
-    fn migrates_a_v1_store_to_v2_without_losing_remembered_volumes() {
+    fn migrates_a_v1_store_to_the_current_version_without_losing_remembered_volumes() {
         let migrated = migrate(stored(json!({
             "schemaVersion": 1,
             "volumeMemory": { "spotify.exe": 0.3 },
@@ -358,7 +397,7 @@ mod tests {
 
         let settings = from_stored(&migrated);
 
-        assert_eq!(settings.schema_version, 2);
+        assert_eq!(settings.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(settings.volume_memory.get("spotify.exe"), Some(&0.3));
         assert!(settings.mute_memory.is_empty());
     }

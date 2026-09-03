@@ -19,6 +19,7 @@ const settings: AppSettings = {
   hotkey: 'CmdOrCtrl+Shift+V',
   theme: 'system',
   shouldLaunchAtLogin: false,
+  shouldShowPeakMeter: true,
   routingPresets: {},
   volumeMemory: {},
   muteMemory: {},

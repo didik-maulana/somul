@@ -22,6 +22,7 @@ const settings: AppSettings = {
   hotkey: 'CmdOrCtrl+Shift+V',
   theme: 'system',
   shouldLaunchAtLogin: false,
+  shouldShowPeakMeter: true,
   routingPresets: {},
   volumeMemory: {},
   muteMemory: {},
@@ -262,5 +263,21 @@ describe('SettingsView', () => {
     await user.click(screen.getByRole('button', { name: 'Back to mixer' }));
 
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('offers a switch for the peak meter, on by default', () => {
+    renderView();
+
+    expect(screen.getByRole('switch', { name: 'Peak meters' })).toBeChecked();
+  });
+
+  it('reports the meter being switched off', async () => {
+    const { user, onSettingsChange } = renderView();
+
+    await user.click(screen.getByRole('switch', { name: 'Peak meters' }));
+
+    expect(onSettingsChange).toHaveBeenCalledWith(
+      expect.objectContaining({ shouldShowPeakMeter: false }),
+    );
   });
 });
