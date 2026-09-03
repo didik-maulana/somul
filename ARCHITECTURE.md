@@ -30,7 +30,7 @@ in [docs/PERF.md](docs/PERF.md).
 | Under 40 MB idle with the panel closed, under 80 MB open (`phys_footprint`, not RSS) | One WebView window, created hidden at boot. The WebView process does not exist until the panel is first shown. | Measured 31 MB and 66 MB |
 | Under 0.1% background CPU | The meter loop is stopped, not throttled, while the panel is hidden. Session discovery is notification-driven. | Measured 0.0% |
 | Under 300 ms to an interactive tray | The tray is registered before the WebView is built. | Ordering enforced, time unmeasured |
-| Smooth meter rendering | Rust emits one batched peak event per tick at 30 Hz. | Cadence tested; the panel does not yet subscribe to peaks |
+| Smooth meter rendering | Rust emits one batched peak event per tick at 30 Hz; the panel treats each batch as a target and draws the travel toward it on one shared rAF loop. | Cadence tested; bars paint at the display's refresh rate from a 30 Hz stream |
 
 One carve-out: while any app is tapped, Somul is part of the render path and the CPU budget does
 not apply. Expect roughly 1 to 2% CPU while tapped audio plays, and memory that scales with the

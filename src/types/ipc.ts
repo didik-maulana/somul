@@ -32,6 +32,18 @@ export interface AudioSession {
   state: SessionState;
 }
 
+/**
+ * One session's loudest sample since the panel last read it.
+ *
+ * Never held in a store. Peaks arrive at 30 Hz and are routed straight to the meter engine, which
+ * writes to the DOM — see `meterEngine.ts`.
+ */
+export interface SessionPeak {
+  sessionId: SessionId;
+  /** Linear amplitude 0.0-1.0. Convert to dB before drawing it. */
+  peak: number;
+}
+
 export interface AudioDevice {
   deviceId: DeviceId;
   name: string;

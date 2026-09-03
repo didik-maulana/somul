@@ -16,6 +16,7 @@ import type {
   MasterState,
   PlatformCapabilities,
   SessionId,
+  SessionPeak,
   SettingsUpdate,
   UpdateProgress,
   UpdateSnapshot,
@@ -234,6 +235,7 @@ export const onPanelShown = (onEvent: () => void): Promise<UnlistenFn> =>
   });
 
 const AUDIO_EVENT = {
+  peaks: 'audio://peaks',
   sessionsChanged: 'audio://sessions-changed',
   capabilitiesChanged: 'audio://capabilities-changed',
   masterChanged: 'audio://master-changed',
@@ -253,6 +255,17 @@ export const onCapabilitiesChanged = (
   onEvent: (capabilities: PlatformCapabilities) => void,
 ): Promise<UnlistenFn> =>
   listen<PlatformCapabilities>(AUDIO_EVENT.capabilitiesChanged, ({ payload }) => {
+    onEvent(payload);
+  });
+
+/**
+ * The meter stream: one batch per tick at 30 Hz, covering every session.
+ *
+ * The only high-frequency event the panel subscribes to. Its payload must never reach a store or
+ * a `setState` — hand it to the meter engine, which draws it on its own rAF loop.
+ */
+export const onPeaks = (onEvent: (peaks: SessionPeak[]) => void): Promise<UnlistenFn> =>
+  listen<SessionPeak[]>(AUDIO_EVENT.peaks, ({ payload }) => {
     onEvent(payload);
   });
 

@@ -2,6 +2,7 @@ import type React from 'react';
 import { Volume1, Volume2, VolumeX } from 'lucide-react';
 
 import { AppIcon } from '@/features/mixer/components/AppIcon';
+import { PeakMeter } from '@/features/mixer/components/PeakMeter';
 import { VolumeSlider } from '@/features/mixer/components/VolumeSlider';
 import { formatPercent } from '@/lib/audio';
 import { cn } from '@/lib/utils';
@@ -10,6 +11,8 @@ import type { AudioSession } from '@/types/ipc';
 export interface AppAudioRowProps {
   session: AudioSession;
   isDragging?: boolean;
+  /** Platform capability, decided upstream. A row never asks the backend what it can do. */
+  hasMeter?: boolean;
   onVolumeChange: (volume: number) => void;
   onVolumeCommit: (volume: number) => void;
   onMuteToggle: () => void;
@@ -33,6 +36,7 @@ const CHIP = 'text-micro shrink-0 rounded-xs border px-1.5 py-0.5 font-medium tr
 export const AppAudioRow: React.FC<AppAudioRowProps> = ({
   session,
   isDragging = false,
+  hasMeter = false,
   onVolumeChange,
   onVolumeCommit,
   onMuteToggle,
@@ -48,6 +52,9 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
   // Remounting on every state change is what lets the glyph animate in. Keying on the state
   // rather than on the component keeps the three volume icons from sharing one instance.
   const volumeIconState = isMuted ? 'muted' : volume > 0.5 ? 'loud' : 'quiet';
+  // A row Somul is not carrying has no peaks to read, and a meter parked at silence beside an app
+  // that is audibly playing is worse than no meter at all.
+  const isMeterVisible = hasMeter && !isDisabled;
 
   return (
     <div
@@ -56,7 +63,8 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
       data-muted={isMuted}
       data-dragging={isDragging}
       className={cn(
-        'group bg-secondary/15 flex h-16 items-center gap-2.5 rounded-lg border border-transparent px-2.5 backdrop-blur-xs',
+        'group bg-secondary/15 flex items-center gap-2.5 rounded-lg border border-transparent px-2.5 backdrop-blur-xs',
+        isMeterVisible ? 'h-[86px]' : 'h-16',
         'transition-[background-color,border-color,box-shadow] duration-[140ms] ease-[var(--ease-standard)]',
         // Hover lifts the row onto the master card's surface, so the two read as one family of
         // control rather than two. Rest stays quieter than the master: the card it is borrowing
@@ -168,6 +176,10 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
             {isUncontrollable ? '—' : formatPercent(volume)}
           </span>
         </div>
+
+        {isMeterVisible && (
+          <PeakMeter sessionId={session.sessionId} isMuted={isMuted} className="mt-0.5" />
+        )}
       </div>
     </div>
   );

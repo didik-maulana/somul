@@ -6,6 +6,7 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { AppAudioRow } from '@/features/mixer/components/AppAudioRow';
 import { CapabilityNotice } from '@/features/mixer/components/CapabilityNotice';
+import { usePeakMeters } from '@/features/mixer/hooks/usePeakMeters';
 import type { AudioSession, PlatformCapabilities, SessionId } from '@/types/ipc';
 
 export interface MixerListProps {
@@ -35,6 +36,9 @@ export const MixerList: React.FC<MixerListProps> = ({
   onRefresh,
   onOpenAudioPermission,
 }) => {
+  // Ahead of every branch below, because the branches return early and a hook cannot.
+  usePeakMeters(capabilities?.hasPerAppMeter ?? false);
+
   if (capabilities === null) {
     return <div data-testid="mixer-loading" className="flex-1" aria-busy="true" />;
   }
@@ -77,6 +81,7 @@ export const MixerList: React.FC<MixerListProps> = ({
               <AppAudioRow
                 session={session}
                 isDragging={draggingSessionIds.has(session.sessionId)}
+                hasMeter={capabilities.hasPerAppMeter}
                 onVolumeChange={(volume) => {
                   onVolumeChange(session, volume);
                 }}

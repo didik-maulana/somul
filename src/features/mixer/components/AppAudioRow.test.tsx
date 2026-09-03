@@ -41,6 +41,29 @@ const renderRow = (overrides: Partial<Parameters<typeof AppAudioRow>[0]> = {}) =
   };
 };
 
+describe('AppAudioRow peak meter', () => {
+  it('stays out of the row until the platform reports a meter', () => {
+    renderRow();
+
+    expect(screen.queryByTestId('peak-meter')).toBeNull();
+  });
+
+  it('renders once the platform reports one', () => {
+    renderRow({ hasMeter: true });
+
+    expect(screen.getByTestId('peak-meter')).toBeInTheDocument();
+  });
+
+  it.each(['inactive', 'expired'] as const)(
+    'hides the meter on a %s row, which produces no peaks to draw',
+    (state) => {
+      renderRow({ hasMeter: true, session: session({ state }) });
+
+      expect(screen.queryByTestId('peak-meter')).toBeNull();
+    },
+  );
+});
+
 describe('AppAudioRow', () => {
   it('renders the app name and its level readout', () => {
     renderRow();
