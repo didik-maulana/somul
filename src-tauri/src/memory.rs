@@ -36,6 +36,12 @@ const VOLUME_EPSILON: f32 = 0.001;
 pub struct AppMemory {
     pub volume: BTreeMap<String, f32>,
     pub is_muted: BTreeMap<String, bool>,
+    /// processName -> the output the user sent that app to.
+    ///
+    /// Absent means it follows the system default, which is why nothing is written for an app put
+    /// back on the default: recorded as the id that happens to be default today, an app pinned to
+    /// "whatever the system uses" would stop following it the next time the user changed outputs.
+    pub output_device: BTreeMap<String, String>,
 }
 
 /// Where memory is read from and written to.
@@ -162,6 +168,49 @@ impl RememberingBackend {
                 session.is_muted = is_muted;
             }
         }
+
+        // A destination whose device is gone is left alone rather than cleared. The adapter
+        // already falls such an app back to the default, and forgetting the preset would mean
+        // plugging the device back in no longer returns the app to it.
+        if let Some(device) = memory.output_device.get(&session.process_name) {
+            let device = DeviceId::new(device.clone());
+
+            if session.output_device_id.as_ref() != Some(&device)
+                && self
+                    .inner
+                    .set_session_output_device(&session.session_id, Some(&device))
+                    .is_ok()
+            {
+                session.output_device_id = Some(device);
+            }
+        }
+    }
+
+    /// Remembered under the process name, like every other preset. A write that the adapter
+    /// refused is never remembered — see [`RememberingBackend::set_session_volume`].
+    ///
+    /// Following the system default is stored as absence rather than as the id that is default
+    /// today, because those are different promises and only one of them survives the user
+    /// changing outputs.
+    fn remember_route(&self, id: &SessionId, device: Option<&DeviceId>) {
+        let mut state = self.state();
+
+        let Some(process_name) = state.process_names.get(id).cloned() else {
+            return;
+        };
+
+        match device {
+            Some(device) => state
+                .memory
+                .output_device
+                .insert(process_name, device.as_str().to_owned()),
+            None => state.memory.output_device.remove(&process_name),
+        };
+
+        let memory = state.memory.clone();
+        drop(state);
+
+        self.store.write(&memory);
     }
 }
 
@@ -238,9 +287,12 @@ impl AudioBackend for RememberingBackend {
     fn set_session_output_device(
         &self,
         id: &SessionId,
-        device: &DeviceId,
+        device: Option<&DeviceId>,
     ) -> Result<(), AudioError> {
-        self.inner.set_session_output_device(id, device)
+        self.inner.set_session_output_device(id, device)?;
+        self.remember_route(id, device);
+
+        Ok(())
     }
 
     fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError> {
@@ -273,6 +325,7 @@ impl<R: Runtime> MemoryStore for StoredMemory<R> {
         AppMemory {
             volume: stored.volume_memory,
             is_muted: stored.mute_memory,
+            output_device: stored.routing_presets,
         }
     }
 
@@ -283,6 +336,7 @@ impl<R: Runtime> MemoryStore for StoredMemory<R> {
 
         stored.volume_memory.clone_from(&memory.volume);
         stored.mute_memory.clone_from(&memory.is_muted);
+        stored.routing_presets.clone_from(&memory.output_device);
 
         let _ = settings::save(&self.app, &stored);
     }
@@ -428,6 +482,69 @@ mod tests {
             .expect("volume write");
 
         assert_eq!(volume_of(&backend, "spotify.exe"), 0.9);
+    }
+
+    #[test]
+    fn remembers_where_an_app_was_routed_under_the_process_name() {
+        let store = Arc::new(RecordingStore::default());
+        let backend = remembering(Arc::clone(&store));
+        let spotify = session_id_of(&backend, "spotify.exe");
+
+        backend
+            .set_session_output_device(&spotify, Some(&DeviceId::new("mock:headphones")))
+            .expect("route write");
+
+        assert_eq!(
+            store.read().output_device.get("spotify.exe").map(String::as_str),
+            Some("mock:headphones")
+        );
+    }
+
+    /// Following the system is stored as absence, so putting an app back on it must clear the
+    /// preset rather than record whichever device is default today. Recorded as an id, the app
+    /// would stop following the moment the user changed outputs.
+    #[test]
+    fn forgets_the_destination_when_an_app_goes_back_to_following_the_system() {
+        let store = Arc::new(RecordingStore::seeded(AppMemory {
+            output_device: BTreeMap::from([(
+                "spotify.exe".to_owned(),
+                "mock:headphones".to_owned(),
+            )]),
+            ..AppMemory::default()
+        }));
+        let backend = remembering(Arc::clone(&store));
+        let spotify = session_id_of(&backend, "spotify.exe");
+
+        backend
+            .set_session_output_device(&spotify, None)
+            .expect("route write");
+
+        assert!(!store.read().output_device.contains_key("spotify.exe"));
+    }
+
+    /// The point of remembering it: set Spotify to the desk speakers once, and every later launch
+    /// lands there without the user opening the picker again.
+    #[test]
+    fn restores_a_remembered_destination_the_first_time_an_app_is_seen() {
+        let store = Arc::new(RecordingStore::seeded(AppMemory {
+            output_device: BTreeMap::from([(
+                "spotify.exe".to_owned(),
+                "mock:headphones".to_owned(),
+            )]),
+            ..AppMemory::default()
+        }));
+        let backend = remembering(store);
+
+        let sessions = backend.list_sessions().expect("sessions");
+        let spotify = sessions
+            .iter()
+            .find(|session| session.process_name == "spotify.exe")
+            .expect("the seeded session exists");
+
+        assert_eq!(
+            spotify.output_device_id.as_ref().map(DeviceId::as_str),
+            Some("mock:headphones")
+        );
     }
 
     #[test]

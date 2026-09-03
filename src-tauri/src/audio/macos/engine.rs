@@ -14,6 +14,7 @@
 //!   their own level. Failure is silence-free by construction; the fallback is "no mixing", never
 //!   "no audio".
 
+use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::ptr;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
@@ -434,9 +435,101 @@ impl Fade {
     }
 }
 
-/// A private aggregate device holding the real output plus every live tap.
+/// Creates one aggregate around `output`, installs its IO proc, and waits for it to render.
+///
+/// One per destination device. The taps themselves are owned by the slots, not by the aggregate:
+/// an aggregate that fails leaves its apps tapped and available to another one, which is what
+/// lets a refused destination fall back to the default without re-tapping anything.
+fn start_aggregate(
+    output: AudioObjectID,
+    slots: &[&TapSlot],
+    mute: TapMute,
+    is_default: bool,
+    holds_only_followers: bool,
+) -> Result<Aggregate, AudioError> {
+    let output_uid = device_uid(output)?;
+    let tap_uids: Vec<&str> = slots.iter().map(|slot| slot._tap.uid()).collect();
+    let device = create_aggregate(&output_uid, &tap_uids)?;
+
+    let render = Box::new(RenderState {
+        controls: slots
+            .iter()
+            .map(|slot| Arc::clone(&slot.control))
+            .collect(),
+        fade: Fade::ducked(),
+        tapped_cycles: AtomicU64::new(0),
+        is_probing: mute == TapMute::Passthrough,
+    });
+
+    let mut aggregate = Aggregate {
+        device,
+        output,
+        is_default,
+        holds_only_followers,
+        io_proc: None,
+        is_running: false,
+        render,
+    };
+
+    let mut io_proc: AudioDeviceIOProcID = None;
+    // SAFETY: `render` is boxed and owned by `aggregate`, which outlives the IO proc because
+    // `Aggregate::drop` stops the device before freeing it. The pointer is stable for that
+    // whole window.
+    let status = unsafe {
+        AudioDeviceCreateIOProcID(
+            device,
+            Some(render_callback),
+            std::ptr::from_ref(aggregate.render.as_ref())
+                .cast_mut()
+                .cast::<c_void>(),
+            &mut io_proc,
+        )
+    };
+    check(status, "installing the mixer IO proc")?;
+
+    aggregate.io_proc = io_proc;
+
+    // SAFETY: the IO proc was just created against this device.
+    check(
+        unsafe { AudioDeviceStart(device, io_proc) },
+        "starting the mixer",
+    )?;
+
+    aggregate.is_running = true;
+
+    diagnose!(
+        "built {} tap(s) as {:?} on {output_uid} for [{}]",
+        slots.len(),
+        mute,
+        slots
+            .iter()
+            .map(|slot| slot.key.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    wait_for_mix(&aggregate.render)?;
+
+    Ok(aggregate)
+}
+
+/// A private aggregate device holding one output plus the taps that play through it.
 struct Aggregate {
     device: AudioObjectID,
+    /// The output this aggregate was built around.
+    ///
+    /// Carried here rather than beside the collection because it is a fact about one aggregate,
+    /// and per-app routing gives the engine more than one of them at a time.
+    output: AudioObjectID,
+    /// Whether this aggregate sits on the device the system currently calls default.
+    is_default: bool,
+    /// Whether every app in it follows the default rather than being pinned to this device.
+    ///
+    /// The two differ exactly when an app is pinned to whichever device happens to be default
+    /// today. Grouping is by device, so that app shares an aggregate with the followers — and
+    /// retargeting that aggregate when the default moves would drag it along, silently undoing
+    /// the pin. Such an aggregate is rebuilt instead of retargeted, which splits them apart.
+    holds_only_followers: bool,
     io_proc: AudioDeviceIOProcID,
     is_running: bool,
     /// Handed to the callback as a raw pointer. Kept boxed here so the allocation outlives every
@@ -537,7 +630,17 @@ impl Drop for Aggregate {
 
 #[derive(Default)]
 struct EngineState {
-    aggregate: Option<Aggregate>,
+    /// One per output device the tap set plays through.
+    ///
+    /// A vector rather than an option because per-app routing puts apps on different devices at
+    /// once, and each device needs its own aggregate, its own IO proc, and its own clock. Today
+    /// it never holds more than one.
+    aggregates: Vec<Aggregate>,
+    /// key -> the output that app was routed to. Absent means it follows the system default.
+    ///
+    /// Keyed the same way `remembered` is, so a routed app keeps its destination across the
+    /// rebuild that adding or removing another app costs.
+    destinations: BTreeMap<String, AudioObjectID>,
     slots: Vec<TapSlot>,
     /// Every process seen at the last sync, tapped or not.
     ///
@@ -574,13 +677,6 @@ struct EngineState {
     /// Cleared only when capture succeeds: the panel reads it to tell a grant that has not landed
     /// yet from one this process will never see.
     capture_retries: u32,
-    /// The output device the current aggregate was built around.
-    ///
-    /// A tapped app is muted at the hardware and audible only through the aggregate, so the
-    /// aggregate's sub-device *is* where that app plays. Switching the system output moves
-    /// everything untapped and leaves every tapped app behind on the old device, which is a
-    /// picker that visibly does nothing for exactly the apps the mixer is showing.
-    output: Option<AudioObjectID>,
 }
 
 /// The engine as the backend sees it.
@@ -637,7 +733,7 @@ impl TapEngine {
         // Only meaningful while an aggregate exists. With no taps built there is no device to be
         // stale against, and comparing anyway would rebuild on every poll of a Mac that is
         // playing nothing.
-        if state.aggregate.is_some() && state.output != super::default_output_device().ok() {
+        if !state.aggregates.is_empty() && state.output() != super::default_output_device().ok() {
             return state.follow_output(self.tap_mute());
         }
 
@@ -653,11 +749,11 @@ impl TapEngine {
     pub fn follow_default_output(&self) -> Result<(), AudioError> {
         let mut state = self.lock();
 
-        if state.aggregate.is_none() {
+        if state.aggregates.is_empty() {
             return Ok(());
         }
 
-        if state.output == super::default_output_device().ok() {
+        if state.output() == super::default_output_device().ok() {
             return Ok(());
         }
 
@@ -867,6 +963,43 @@ impl TapEngine {
         !self.has_synced.load(Ordering::Relaxed)
     }
 
+    /// Sends one app's audio to `output`, or back to the system default with `None`.
+    ///
+    /// Costs a rebuild, which costs every app a short gap. That is spent here because it is the
+    /// one thing routing cannot be done without — the tap set has to be regrouped into a new set
+    /// of aggregates — and because unlike the rebuilds the engine does on its own, this one is a
+    /// button the user just pressed and expects something to happen after.
+    pub fn route(&self, key: &str, output: Option<AudioObjectID>) -> Result<(), AudioError> {
+        let mut state = self.lock();
+
+        let previous = state.destinations.get(key).copied();
+
+        if previous == output {
+            return Ok(());
+        }
+
+        match output {
+            Some(output) => state.destinations.insert(key.to_owned(), output),
+            None => state.destinations.remove(key),
+        };
+
+        // Nothing is tapped yet, so there is no mix to regroup. The destination is remembered and
+        // applied by the first build.
+        if state.aggregates.is_empty() {
+            return Ok(());
+        }
+
+        let processes = state.processes.clone();
+        let mute = self.tap_mute();
+
+        state.rebuild(&processes, mute)
+    }
+
+    /// Where one app is currently being sent, or `None` when it follows the system default.
+    pub fn destination(&self, key: &str) -> Option<AudioObjectID> {
+        self.lock().destinations.get(key).copied()
+    }
+
     /// The knobs for one app, or `None` when it is no longer being tapped.
     pub fn control(&self, key: &str) -> Option<Arc<SessionControl>> {
         self.lock()
@@ -954,10 +1087,22 @@ impl EngineState {
     /// The reverse order would leave the aggregate referencing taps that no longer exist, and
     /// CoreAudio is entitled to be unhappy about that.
     fn teardown(&mut self) {
-        self.aggregate = None;
+        self.aggregates.clear();
         self.slots.clear();
         self.keys.clear();
-        self.output = None;
+    }
+
+    /// The output a tapped app currently plays through.
+    ///
+    /// A tapped app is muted at the hardware and audible only through its aggregate, so the
+    /// aggregate's sub-device *is* where that app plays. Switching the system output moves
+    /// everything untapped and would leave every tapped app behind on the old device, which is a
+    /// picker that visibly does nothing for exactly the apps the mixer is showing.
+    fn output(&self) -> Option<AudioObjectID> {
+        self.aggregates
+            .iter()
+            .find(|aggregate| aggregate.is_default)
+            .map(|aggregate| aggregate.output)
     }
 
     /// Points the mix at whatever the system output is now, in place where the HAL allows it.
@@ -968,32 +1113,70 @@ impl EngineState {
         let output = super::default_output_device()?;
         let output_uid = device_uid(output)?;
 
-        let moved = self.aggregate.as_ref().map(|aggregate| {
-            // Ducked across the swap, and left ducked if it fails: the fallback below tears this
-            // aggregate down, and silence is the right level to be at when that happens.
+        // The in-place move is only safe while the whole mix is one aggregate of followers.
+        //
+        // With anything pinned it is wrong twice over. An app pinned to whichever device happens
+        // to be default today rides in the same aggregate as the followers, so retargeting carries
+        // it along and silently undoes the pin. And moving the followers onto a device some pinned
+        // aggregate already occupies would leave two aggregates on one device, which is an
+        // arrangement nothing here has ever verified.
+        //
+        // A rebuild regroups by destination and gets both right. It costs a gap, which is why it
+        // is not the path taken when nothing is routed at all.
+        let is_one_group_of_followers = self.aggregates.len() == 1
+            && self.aggregates.iter().all(|aggregate| aggregate.holds_only_followers);
+
+        if !is_one_group_of_followers {
+            diagnose!("apps are routed, so the default move is a rebuild rather than a retarget");
+
+            let processes = self.processes.clone();
+
+            return self.rebuild(&processes, mute);
+        }
+
+        // Only the aggregates carrying the apps that follow the system output. One routed
+        // somewhere on purpose stays where it was put.
+        let following: Vec<&mut Aggregate> = self
+            .aggregates
+            .iter_mut()
+            .filter(|aggregate| aggregate.is_default)
+            .collect();
+
+        if following.is_empty() {
+            return Ok(());
+        }
+
+        // Ducked across the swap, and left ducked if it fails: the fallback below tears these
+        // aggregates down, and silence is the right level to be at when that happens.
+        for aggregate in &following {
             aggregate.render.fade.duck();
-            thread::sleep(FADE_SETTLE);
+        }
 
-            let result = aggregate.retarget(&output_uid);
+        thread::sleep(FADE_SETTLE);
 
-            if result.is_ok() {
-                aggregate.render.fade.restore();
-            }
+        let moved = following
+            .into_iter()
+            .map(|aggregate| {
+                let result = aggregate.retarget(&output_uid);
 
-            result
-        });
+                if result.is_ok() {
+                    aggregate.output = output;
+                    aggregate.render.fade.restore();
+                }
+
+                result
+            })
+            .collect::<Result<Vec<()>, AudioError>>();
 
         match moved {
-            Some(Ok(())) => {
+            Ok(_) => {
                 diagnose!("moved the mix onto {output_uid} in place");
-                self.output = Some(output);
 
                 return Ok(());
             }
-            Some(Err(error)) => {
+            Err(error) => {
                 diagnose!("could not move the mix onto {output_uid} in place, rebuilding: {error:?}");
             }
-            None => {}
         }
 
         let processes = self.processes.clone();
@@ -1022,10 +1205,7 @@ impl EngineState {
     }
 
     fn build(&mut self, processes: &[ProcessSession], mute: TapMute) -> Result<(), AudioError> {
-        let output = super::default_output_device()?;
-        let output_uid = device_uid(output)?;
-
-        self.output = Some(output);
+        let default_output = super::default_output_device()?;
 
         let mut slots = Vec::with_capacity(processes.len());
 
@@ -1054,60 +1234,46 @@ impl EngineState {
             slots.truncate(MAX_CHANNELS / CHANNELS_PER_TAP);
         }
 
-        let tap_uids: Vec<&str> = slots.iter().map(|slot| slot._tap.uid()).collect();
-        let device = create_aggregate(&output_uid, &tap_uids)?;
+        let available = super::output_device_ids().unwrap_or_default();
+        let mut groups: BTreeMap<AudioObjectID, Vec<usize>> = BTreeMap::new();
+        let mut pinned: Vec<bool> = vec![false; slots.len()];
 
-        let render = Box::new(RenderState {
-            controls: slots
-                .iter()
-                .map(|slot| Arc::clone(&slot.control))
-                .collect(),
-            fade: Fade::ducked(),
-            tapped_cycles: AtomicU64::new(0),
-            is_probing: mute == TapMute::Passthrough,
-        });
+        for (index, slot) in slots.iter().enumerate() {
+            // A destination that has been unplugged resolves back to the default rather than
+            // failing. The preset stays on disk untouched, so plugging the device back in puts
+            // the app on it again without the user having to pick it a second time.
+            let destination = self
+                .destinations
+                .get(&slot.key)
+                .copied()
+                .filter(|device| available.contains(device));
 
-        let mut aggregate = Aggregate {
-            device,
-            io_proc: None,
-            is_running: false,
-            render,
-        };
+            pinned[index] = destination.is_some();
+            groups
+                .entry(destination.unwrap_or(default_output))
+                .or_default()
+                .push(index);
+        }
 
-        let mut io_proc: AudioDeviceIOProcID = None;
-        // SAFETY: `render` is boxed and owned by `aggregate`, which outlives the IO proc because
-        // `Aggregate::drop` stops the device before freeing it. The pointer is stable for that
-        // whole window.
-        let status = unsafe {
-            AudioDeviceCreateIOProcID(
-                device,
-                Some(render_callback),
-                std::ptr::from_ref(aggregate.render.as_ref())
-                    .cast_mut()
-                    .cast::<c_void>(),
-                &mut io_proc,
-            )
-        };
-        check(status, "installing the mixer IO proc")?;
+        let mut default_group = groups.remove(&default_output).unwrap_or_default();
+        let mut aggregates = Vec::with_capacity(groups.len() + 1);
 
-        aggregate.io_proc = io_proc;
+        // Non-default destinations first, so one that refuses can hand its apps back to the
+        // default group before that group is built. Built last, the default aggregate would
+        // already be running and folding into it would mean tearing it down again — and a device
+        // the user routed to being flaky must cost that app its destination, never everyone else
+        // their audio.
+        for (output, indices) in groups {
+            let members: Vec<&TapSlot> = indices.iter().map(|index| &slots[*index]).collect();
 
-        // SAFETY: the IO proc was just created against this device.
-        let status = unsafe { AudioDeviceStart(device, io_proc) };
-        check(status, "starting the mixer")?;
-
-        aggregate.is_running = true;
-
-        diagnose!(
-            "built {} tap(s) as {:?} for [{}]",
-            slots.len(),
-            mute,
-            slots
-                .iter()
-                .map(|slot| slot.key.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+            match start_aggregate(output, &members, mute, false, false) {
+                Ok(aggregate) => aggregates.push(aggregate),
+                Err(error) => {
+                    diagnose!("{output} refused the mix, falling its apps back to the default: {error:?}");
+                    default_group.extend(indices);
+                }
+            }
+        }
 
         let now = Instant::now();
 
@@ -1115,13 +1281,27 @@ impl EngineState {
         self.probed_at = Some(now);
         self.silent_since = self.silent_since.or(Some(now));
 
-        // Nothing below this point is optional. Every tap above muted its app at the hardware, so
-        // if the mix is not actually running the user has lost that audio entirely, with no way
-        // back short of quitting Somul. Returning an error here drops `slots`, and dropping a
-        // `ProcessTap` hands its app straight back to the hardware.
-        wait_for_mix(&aggregate.render)?;
+        if !default_group.is_empty() {
+            default_group.sort_unstable();
 
-        self.aggregate = Some(aggregate);
+            let members: Vec<&TapSlot> = default_group.iter().map(|index| &slots[*index]).collect();
+
+            // Nothing here is optional. Every tap above muted its app at the hardware, so if the
+            // mix is not actually running the user has lost that audio entirely, with no way back
+            // short of quitting Somul. Returning an error drops `slots`, and dropping a
+            // `ProcessTap` hands its app straight back to the hardware.
+            let holds_only_followers = default_group.iter().all(|index| !pinned[*index]);
+
+            aggregates.push(start_aggregate(
+                default_output,
+                &members,
+                mute,
+                true,
+                holds_only_followers,
+            )?);
+        }
+
+        self.aggregates = aggregates;
         self.slots = slots;
 
         Ok(())

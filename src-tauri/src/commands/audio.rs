@@ -67,15 +67,14 @@ pub fn set_default_output_device(
     state.backend().set_default_output_device(&device_id)
 }
 
-/// Planned for v1.1. Wired now so the command surface is complete; v1.0 adapters reject it as
-/// unsupported rather than pretending to route anything.
+/// A null `deviceId` puts the session back to following the system default.
 #[tauri::command]
 pub fn set_session_output_device(
     state: State<'_, AudioState>,
     session_id: SessionId,
-    device_id: DeviceId,
+    device_id: Option<DeviceId>,
 ) -> Result<(), AudioError> {
     state
         .backend()
-        .set_session_output_device(&session_id, &device_id)
+        .set_session_output_device(&session_id, device_id.as_ref())
 }

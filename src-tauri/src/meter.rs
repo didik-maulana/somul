@@ -425,7 +425,7 @@ mod tests {
         fn set_session_output_device(
             &self,
             id: &SessionId,
-            device: &DeviceId,
+            device: Option<&DeviceId>,
         ) -> Result<(), AudioError> {
             self.inner.set_session_output_device(id, device)
         }
@@ -1039,7 +1039,7 @@ mod tests {
             fn set_session_output_device(
                 &self,
                 id: &SessionId,
-                device: &DeviceId,
+                device: Option<&DeviceId>,
             ) -> Result<(), AudioError> {
                 self.inner.set_session_output_device(id, device)
             }

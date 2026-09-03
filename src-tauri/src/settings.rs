@@ -146,6 +146,7 @@ pub fn from_stored(stored: &Map<String, Value>) -> AppSettings {
 /// every level remembered since then back to the startup snapshot, so a theme change would silently
 /// undo an evening of mixing.
 pub fn preserve_memory(stored: &AppSettings, incoming: &mut AppSettings) {
+    incoming.routing_presets.clone_from(&stored.routing_presets);
     incoming.volume_memory.clone_from(&stored.volume_memory);
     incoming.mute_memory.clone_from(&stored.mute_memory);
 }

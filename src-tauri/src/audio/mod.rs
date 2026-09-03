@@ -155,14 +155,16 @@ pub struct PlatformCapabilities {
 }
 
 impl PlatformCapabilities {
-    /// Windows and Linux. Per-app routing stays false in v1.0: it is planned for v1.1 on Linux
-    /// and remains an unproven spike on Windows, which has no public routing API.
+    /// Everything a capable adapter offers, routing included.
+    ///
+    /// An adapter that cannot route must not report this. Windows has no public routing API, so
+    /// its adapter will need a narrower constructor when it lands.
     pub fn full_per_app() -> Self {
         Self {
             has_per_app_volume: true,
             has_per_app_mute: true,
             has_per_app_meter: true,
-            has_per_app_routing: false,
+            has_per_app_routing: true,
             unsupported_reason: None,
         }
     }
@@ -199,10 +201,16 @@ pub trait AudioBackend: Send + Sync {
 
     fn list_output_devices(&self) -> Result<Vec<AudioDevice>, AudioError>;
     fn set_default_output_device(&self, device: &DeviceId) -> Result<(), AudioError>;
+    /// Sends one session to `device`, or back to following the system default with `None`.
+    ///
+    /// The two are different promises, which is why the default is absence rather than the id of
+    /// whichever device is default today. An app pinned to that id would stop following the
+    /// system the next time the user changed outputs — and pinning to the current default is a
+    /// thing a user may well want, so it cannot be collapsed into following.
     fn set_session_output_device(
         &self,
         id: &SessionId,
-        device: &DeviceId,
+        device: Option<&DeviceId>,
     ) -> Result<(), AudioError>;
 
     fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError>;
@@ -375,13 +383,13 @@ mod tests {
     }
 
     #[test]
-    fn full_per_app_keeps_routing_off_until_v1_1() {
+    fn full_per_app_carries_every_capability_including_routing() {
         let capabilities = PlatformCapabilities::full_per_app();
 
         assert!(capabilities.has_per_app_volume);
         assert!(capabilities.has_per_app_mute);
         assert!(capabilities.has_per_app_meter);
-        assert!(!capabilities.has_per_app_routing);
+        assert!(capabilities.has_per_app_routing);
         assert_eq!(capabilities.unsupported_reason, None);
     }
 

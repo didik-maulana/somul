@@ -225,12 +225,28 @@ impl AudioBackend for MockAudioBackend {
 
     fn set_session_output_device(
         &self,
-        _id: &SessionId,
-        _device: &DeviceId,
+        id: &SessionId,
+        device: Option<&DeviceId>,
     ) -> Result<(), AudioError> {
-        Err(AudioError::Unsupported(
-            "per-app output routing is v1.1".to_owned(),
-        ))
+        self.require_per_app()?;
+
+        let mut state = self.state()?;
+
+        if let Some(device) = device {
+            if !state.devices.iter().any(|known| &known.device_id == device) {
+                return Err(AudioError::DeviceNotFound(device.clone()));
+            }
+        }
+
+        let session = state
+            .sessions
+            .iter_mut()
+            .find(|session| &session.session_id == id)
+            .ok_or_else(|| AudioError::SessionNotFound(id.clone()))?;
+
+        session.output_device_id = device.cloned();
+
+        Ok(())
     }
 
     fn read_peaks(&self) -> Result<Vec<SessionPeak>, AudioError> {

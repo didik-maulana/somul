@@ -153,8 +153,9 @@ pub fn capabilities_are_self_consistent(backend: &dyn AudioBackend) {
     }
 
     assert!(
-        !capabilities.has_per_app_routing,
-        "per-app routing is v1.1 — no v1.0 adapter may advertise it"
+        !capabilities.has_per_app_routing || capabilities.has_per_app_volume,
+        "an adapter that routes must also carry volume — routing moves a tapped app, and an \
+         untapped one has nothing to move"
     );
 }
 
@@ -502,27 +503,61 @@ pub fn switching_to_an_unknown_device_reports_device_not_found(backend: &dyn Aud
     );
 }
 
-/// Per-app routing is planned for v1.1. No v1.0 adapter may quietly accept it.
-pub fn per_app_routing_is_unsupported_in_v1(backend: &dyn AudioBackend) {
-    let session = backend
-        .list_sessions()
-        .ok()
-        .and_then(|sessions| sessions.first().map(|session| session.session_id.clone()))
-        .unwrap_or_else(unknown_session);
+/// Routing answers about the ids it was given, whether or not the adapter can route.
+///
+/// An adapter that cannot route says `Unsupported` with a reason the UI can render. One that can
+/// must still reject an id it does not know rather than silently doing nothing, because a picker
+/// that reports success and moves no audio is the dishonesty the whole trait exists to prevent.
+pub fn per_app_routing_answers_for_the_ids_it_was_given(backend: &dyn AudioBackend) {
+    let capabilities = backend.capabilities();
     let device = backend
         .list_output_devices()
         .ok()
         .and_then(|devices| devices.first().map(|device| device.device_id.clone()))
         .unwrap_or_else(unknown_device);
 
-    match backend.set_session_output_device(&session, &device) {
-        Err(AudioError::Unsupported(reason)) => assert!(
-            !reason.trim().is_empty(),
-            "per-app routing returned Unsupported with a blank reason"
-        ),
-        Err(other) => panic!("per-app routing must return Unsupported, got {other:?}"),
-        Ok(()) => panic!("per-app routing is v1.1 and must not succeed in v1.0"),
+    if !capabilities.has_per_app_routing {
+        let session = backend
+            .list_sessions()
+            .ok()
+            .and_then(|sessions| sessions.first().map(|session| session.session_id.clone()))
+            .unwrap_or_else(unknown_session);
+
+        match backend.set_session_output_device(&session, Some(&device)) {
+            Err(AudioError::Unsupported(reason)) => assert!(
+                !reason.trim().is_empty(),
+                "per-app routing returned Unsupported with a blank reason"
+            ),
+            Err(other) => panic!("an adapter that cannot route must say Unsupported, got {other:?}"),
+            Ok(()) => panic!("an adapter that does not advertise routing must not accept it"),
+        }
+
+        return;
     }
+
+    assert!(
+        matches!(
+            backend.set_session_output_device(&unknown_session(), Some(&device)),
+            Err(AudioError::SessionNotFound(_))
+        ),
+        "routing an unknown session must report SessionNotFound"
+    );
+
+    let Some(session) = backend
+        .list_sessions()
+        .ok()
+        .and_then(|sessions| sessions.first().map(|session| session.session_id.clone()))
+    else {
+        return;
+    };
+
+    assert!(
+        matches!(
+            backend.set_session_output_device(&session, Some(&unknown_device())),
+            Err(AudioError::DeviceNotFound(_))
+        ),
+        "routing to an unknown device must report DeviceNotFound"
+    );
 }
 
 /// Peaks are linear amplitudes, and one batched tick covers every session at once.
@@ -597,7 +632,7 @@ macro_rules! audio_backend_contract {
             contract_check!(exactly_one_output_device_is_default);
             contract_check!(default_output_device_switches);
             contract_check!(switching_to_an_unknown_device_reports_device_not_found);
-            contract_check!(per_app_routing_is_unsupported_in_v1);
+            contract_check!(per_app_routing_answers_for_the_ids_it_was_given);
             contract_check!(peaks_cover_every_session_exactly_once);
         }
     };

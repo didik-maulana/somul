@@ -57,10 +57,6 @@ pub const UNSUPPORTED_REASON: &str = "Somul could not open the per-app audio tap
 for individual app volume. Check that Somul is allowed to capture audio in System Settings › \
 Privacy & Security, then reopen the panel.";
 
-/// Describes what was observed rather than asserting a denial, because a user whose apps are
-/// merely paused lands here too, and telling them their permission is broken would be a lie.
-const PER_APP_ROUTING_REASON: &str = "Per-app output routing is not available on macOS in v1.";
-
 /// The macOS that introduced `AudioHardwareCreateProcessTap`. Below it there is no per-app path
 /// at all, and the panel must say so instead of failing at the first tap.
 const MINIMUM_TAP_VERSION: (u32, u32) = (14, 2);
@@ -123,7 +119,10 @@ impl MacOsAudioBackend {
                     icon_data_uri: icon::icon_data_uri(found.pid, &found.bundle_id),
                     volume: control.as_ref().map_or(1.0, |control| control.gain()),
                     is_muted: control.as_ref().is_some_and(|control| control.is_muted()),
-                    output_device_id: None,
+                    output_device_id: self
+                        .engine
+                        .destination(&key)
+                        .map(|device| DeviceId::new(device.to_string())),
                     // An open app that we failed to tap is present but not controllable, which is
                     // exactly what `Inactive` means. So is one whose tap is still passthrough:
                     // the tap carries no gain until it is muted, and a slider over it would move
@@ -651,10 +650,32 @@ instead.",
 
     fn set_session_output_device(
         &self,
-        _id: &SessionId,
-        _device: &DeviceId,
+        id: &SessionId,
+        device: Option<&DeviceId>,
     ) -> Result<(), AudioError> {
-        Err(AudioError::Unsupported(PER_APP_ROUTING_REASON.to_owned()))
+        // Checked before the engine is touched. Routing an app at a device that is gone would
+        // resolve straight back to the default, which reads as the picker having ignored the
+        // choice rather than as the device being unavailable.
+        let destination = device
+            .map(|device| {
+                let requested: AudioDeviceID = device
+                    .as_str()
+                    .parse()
+                    .map_err(|_| AudioError::DeviceNotFound(device.clone()))?;
+
+                if !output_device_ids()?.contains(&requested) {
+                    return Err(AudioError::DeviceNotFound(device.clone()));
+                }
+
+                Ok(requested)
+            })
+            .transpose()?;
+
+        // The app has to exist before it can be routed, or a stale row could write a destination
+        // that nothing ever clears.
+        self.control_for(id)?;
+
+        self.engine.route(id.as_str(), destination)
     }
 
     /// There are no sessions on macOS in v1, so a tick carries no per-session peaks.
@@ -731,8 +752,8 @@ mod tests {
         }
 
         assert!(
-            !capabilities.has_per_app_routing,
-            "per-app routing is v1.1 on every platform"
+            !capabilities.has_per_app_routing || capabilities.has_per_app_volume,
+            "routing moves a tapped app, so an adapter that routes must also carry volume"
         );
     }
 
@@ -758,16 +779,41 @@ mod tests {
         ));
     }
 
-    /// Routing stays refused. Per-app volume arriving does not bring per-app output with it —
-    /// a tap mixes into one bus, and that bus has a single destination.
+    /// Routing rejects an id it does not know rather than reporting a move it never made.
+    ///
+    /// The device is checked before the session because an unknown device is the answer whichever
+    /// session was named, and it is the one the picker can act on.
     #[test]
-    fn still_refuses_per_app_routing() {
+    fn refuses_to_route_at_ids_it_does_not_know() {
         let backend = MacOsAudioBackend::new();
 
-        assert!(matches!(
-            backend.set_session_output_device(&session_id(), &DeviceId::new("1")),
-            Err(AudioError::Unsupported(_))
-        ));
+        if !backend.capabilities().has_per_app_volume {
+            return;
+        }
+
+        assert!(
+            matches!(
+                backend.set_session_output_device(&session_id(), Some(&DeviceId::new("not-a-device"))),
+                Err(AudioError::DeviceNotFound(_))
+            ),
+            "routing at a device id that is not even an object id must report DeviceNotFound"
+        );
+
+        let Ok(devices) = backend.list_output_devices() else {
+            return;
+        };
+
+        let Some(device) = devices.first() else {
+            return;
+        };
+
+        assert!(
+            matches!(
+                backend.set_session_output_device(&session_id(), Some(&device.device_id)),
+                Err(AudioError::SessionNotFound(_))
+            ),
+            "routing a session that does not exist must report SessionNotFound"
+        );
     }
 
     /// Every session the backend lists must be controllable by the key it published, or the UI
