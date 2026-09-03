@@ -51,13 +51,6 @@
   --color-signal-800: #2c5060;
   --color-signal-900: #274451;
 
-  --color-mint-100: #e6f3f2;
-  --color-mint-200: #d0e7e6;
-  --color-mint-300: #aed4d2;
-  --color-mint-400: #85bab8;
-  --color-mint-500: #649b99;
-  --color-mint-600: #4e7d7c;
-
   --color-neutral-50: #f7f8fa;
   --color-neutral-100: #eff1f5;
   --color-neutral-200: #e2e5ec;
@@ -135,8 +128,6 @@
   --success: #167a50;
   --warning: #96600c;
   --info: #2e4a9a;
-  --meter-floor: #4e7d7c;
-  --meter-mid: #3b7b92;
   --border: #e2e5ec;
   --input: #767e91;
   --ring: #4274d9;
@@ -174,8 +165,6 @@
   --success: #3fbf87;
   --warning: #e0a340;
   --info: #8fafe8;
-  --meter-floor: #d0e7e6;
-  --meter-mid: #95ccdd;
   --border: #2a2f3c;
   --input: #636b80;
   --ring: #4274d9;
@@ -187,7 +176,7 @@
   --audio-circle-gradient-1: radial-gradient(circle at center, color-mix(in srgb, var(--ring) 42%, transparent) 0%, color-mix(in srgb, var(--primary) 22%, transparent) 45%, transparent 80%);
   --audio-circle-gradient-2: radial-gradient(circle at center, color-mix(in srgb, var(--info) 40%, transparent) 0%, color-mix(in srgb, var(--primary-stroke) 20%, transparent) 45%, transparent 80%);
   --audio-circle-gradient-3: radial-gradient(circle at center, color-mix(in srgb, var(--primary-stroke) 42%, transparent) 0%, color-mix(in srgb, var(--info) 22%, transparent) 45%, transparent 80%);
-  --audio-circle-gradient-4: radial-gradient(circle at center, color-mix(in srgb, var(--meter-mid) 38%, transparent) 0%, color-mix(in srgb, var(--ring) 18%, transparent) 45%, transparent 80%);
+  --audio-circle-gradient-4: radial-gradient(circle at center, color-mix(in srgb, #95ccdd 38%, transparent) 0%, color-mix(in srgb, var(--ring) 18%, transparent) 45%, transparent 80%);
   --audio-circle-pulse-opacity: 0.65;
 }
 
@@ -213,8 +202,6 @@
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
-  --color-meter-floor: var(--meter-floor);
-  --color-meter-mid: var(--meter-mid);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
