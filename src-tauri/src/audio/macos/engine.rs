@@ -2023,3 +2023,141 @@ mod tests {
         assert_eq!(state.recall("macos:app:unseen"), (1.0, false, false));
     }
 }
+
+/// Hardware spike for per-app output routing.
+///
+/// Routing rests on one assumption nothing in the shipping engine exercises: that **two private
+/// aggregate devices can run at once**, each clocked from a different output, each with its own IO
+/// proc. The engine builds exactly one, and `EngineState::output` is a single field threaded
+/// through `build`, `retarget`, and `follow_default_output` — so restructuring it for routing and
+/// only then discovering the HAL refuses the arrangement would waste the whole effort.
+///
+/// Ignored by default: it needs two real output devices and it starts real audio hardware.
+///
+/// ```sh
+/// cargo test --manifest-path src-tauri/Cargo.toml -- --ignored --nocapture two_aggregates
+/// ```
+#[cfg(test)]
+mod routing_spike {
+    use super::*;
+
+    struct Counter {
+        cycles: AtomicU64,
+    }
+
+    unsafe extern "C" fn counting_callback(
+        _device: AudioObjectID,
+        _now: *const AudioTimeStamp,
+        _input: *const AudioBufferList,
+        _input_time: *const AudioTimeStamp,
+        _output: *mut AudioBufferList,
+        _output_time: *const AudioTimeStamp,
+        client_data: *mut c_void,
+    ) -> OSStatus {
+        if !client_data.is_null() {
+            // SAFETY: the box outlives the IO proc — the test stops the device before dropping it.
+            let counter = unsafe { &*client_data.cast::<Counter>() };
+            counter.cycles.fetch_add(1, Ordering::Relaxed);
+        }
+
+        0
+    }
+
+    struct RunningAggregate {
+        device: AudioObjectID,
+        io_proc: AudioDeviceIOProcID,
+        counter: Box<Counter>,
+    }
+
+    impl RunningAggregate {
+        fn start(output_uid: &str) -> Result<Self, AudioError> {
+            let device = create_aggregate(output_uid, &[])?;
+            let counter = Box::new(Counter {
+                cycles: AtomicU64::new(0),
+            });
+
+            let mut io_proc: AudioDeviceIOProcID = None;
+            // SAFETY: `counter` is boxed and owned here, and the device is stopped before it drops.
+            let status = unsafe {
+                AudioDeviceCreateIOProcID(
+                    device,
+                    Some(counting_callback),
+                    std::ptr::from_ref(counter.as_ref())
+                        .cast_mut()
+                        .cast::<c_void>(),
+                    &mut io_proc,
+                )
+            };
+            check(status, "installing the spike IO proc")?;
+
+            // SAFETY: the IO proc was just created against this device.
+            check(unsafe { AudioDeviceStart(device, io_proc) }, "starting the spike")?;
+
+            Ok(Self {
+                device,
+                io_proc,
+                counter,
+            })
+        }
+
+        fn cycles(&self) -> u64 {
+            self.counter.cycles.load(Ordering::Relaxed)
+        }
+    }
+
+    impl Drop for RunningAggregate {
+        fn drop(&mut self) {
+            // SAFETY: both ids came from this aggregate and are stopped before it is destroyed.
+            unsafe {
+                AudioDeviceStop(self.device, self.io_proc);
+                AudioDeviceDestroyIOProcID(self.device, self.io_proc);
+                AudioHardwareDestroyAggregateDevice(self.device);
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "needs two real output devices and starts audio hardware"]
+    fn two_aggregates_run_at_once_on_different_outputs() {
+        let outputs: Vec<(AudioObjectID, String)> = super::super::output_device_ids()
+            .expect("listing output devices")
+            .into_iter()
+            .filter_map(|device| device_uid(device).ok().map(|uid| (device, uid)))
+            .filter(|(device, _)| super::super::has_output_streams(*device))
+            .collect();
+
+        assert!(
+            outputs.len() >= 2,
+            "the spike needs two output devices, found {}",
+            outputs.len()
+        );
+
+        let (_, first_uid) = &outputs[0];
+        let (_, second_uid) = &outputs[1];
+
+        println!("first:  {first_uid}");
+        println!("second: {second_uid}");
+
+        let first = RunningAggregate::start(first_uid).expect("first aggregate refused to start");
+        let second =
+            RunningAggregate::start(second_uid).expect("second aggregate refused to start");
+
+        thread::sleep(Duration::from_millis(400));
+
+        let first_cycles = first.cycles();
+        let second_cycles = second.cycles();
+
+        println!("first cycles:  {first_cycles}");
+        println!("second cycles: {second_cycles}");
+
+        assert!(
+            first_cycles > 0,
+            "the first aggregate was created and started but never rendered a cycle"
+        );
+        assert!(
+            second_cycles > 0,
+            "a second aggregate on another output never rendered a cycle -- per-app routing \
+             cannot be built as one aggregate per destination"
+        );
+    }
+}
