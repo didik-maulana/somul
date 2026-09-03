@@ -322,7 +322,16 @@ impl SessionControl {
         f32::from_bits(self.peak.swap(0.0_f32.to_bits(), Ordering::Relaxed))
     }
 
-    /// Records one render cycle's level from the callback.
+    /// Records one render cycle's levels from the callback.
+    ///
+    /// Takes two, because the two questions have different answers. `audible` is what leaves for
+    /// the device with this session's gain already in it, and is what the meter draws: a slider
+    /// pulled to zero has to read as silence, or the panel shows a bar bouncing beside a control
+    /// the user has just used to stop the sound.
+    ///
+    /// `produced` is the app's own level before that gain, and is what decides whether the app has
+    /// been heard at all. Feeding the metered value in here instead would make turning a slider
+    /// down look like the app went quiet on its own, and Somul would give up its control of it.
     ///
     /// Keeps the loudest level seen since the UI last read, so a peak between two reads is
     /// reported rather than overwritten by the quiet frame that followed it.
@@ -330,16 +339,16 @@ impl SessionControl {
     /// A cycle at or below the floor restarts the run rather than shortening it. The run is
     /// evidence of continuous output, and an app producing audio one cycle in three is a stream
     /// opening and closing, not something to give a slider.
-    fn observe(&self, peak: f32) {
-        if f32::from_bits(self.peak.load(Ordering::Relaxed)) < peak {
-            self.peak.store(peak.to_bits(), Ordering::Relaxed);
+    fn observe(&self, produced: f32, audible: f32) {
+        if f32::from_bits(self.peak.load(Ordering::Relaxed)) < audible {
+            self.peak.store(audible.to_bits(), Ordering::Relaxed);
         }
 
         if self.has_signal.load(Ordering::Relaxed) {
             return;
         }
 
-        if peak <= SIGNAL_FLOOR {
+        if produced <= SIGNAL_FLOOR {
             self.signal_run.store(0, Ordering::Relaxed);
             return;
         }
@@ -1465,7 +1474,8 @@ unsafe fn mix(
     for (index, control) in controls.iter().enumerate() {
         let target = if control.is_muted() { 0.0 } else { control.gain() };
         let mut gain = control.applied_gain();
-        let mut peak = 0.0_f32;
+        let mut produced = 0.0_f32;
+        let mut audible = 0.0_f32;
 
         // Channel pairing is resolved before the frame loop so that loop stays arithmetic. A mono
         // output still has to carry every app, so the last channel takes the overflow rather than
@@ -1501,8 +1511,17 @@ unsafe fn mix(
                 let sample = unsafe { *in_pointer.add(frame * in_stride) };
                 let magnitude = sample.abs();
 
-                if magnitude > peak {
-                    peak = magnitude;
+                if magnitude > produced {
+                    produced = magnitude;
+                }
+
+                // While probing, the tap is passthrough and this callback writes silence — the
+                // hardware is still playing the app itself, so `gain` reaches nobody's ears and
+                // the audible level is the app's own.
+                let contributed = if is_probing { magnitude } else { magnitude * gain };
+
+                if contributed > audible {
+                    audible = contributed;
                 }
 
                 if !is_probing {
@@ -1513,7 +1532,7 @@ unsafe fn mix(
         }
 
         control.set_applied_gain(gain);
-        control.observe(peak);
+        control.observe(produced, audible);
     }
 }
 
@@ -1534,8 +1553,8 @@ mod tests {
     fn holds_the_loudest_level_between_two_reads() {
         let control = SessionControl::new(1.0, false, false);
 
-        control.observe(0.6);
-        control.observe(0.1);
+        control.observe(0.6, 0.6);
+        control.observe(0.1, 0.1);
 
         assert_eq!(control.take_peak(), 0.6);
     }
@@ -1561,7 +1580,7 @@ mod tests {
         let control = SessionControl::new(1.0, false, false);
 
         for _ in 0..SIGNAL_CYCLES - 1 {
-            control.observe(0.5);
+            control.observe(0.5, 0.5);
         }
 
         assert!(!control.has_signal());
@@ -1572,7 +1591,7 @@ mod tests {
         let control = SessionControl::new(1.0, false, false);
 
         for _ in 0..SIGNAL_CYCLES {
-            control.observe(0.5);
+            control.observe(0.5, 0.5);
         }
 
         assert!(control.has_signal());
@@ -1585,8 +1604,8 @@ mod tests {
         let control = SessionControl::new(1.0, false, false);
 
         for _ in 0..SIGNAL_CYCLES * 2 {
-            control.observe(0.5);
-            control.observe(0.0);
+            control.observe(0.5, 0.5);
+            control.observe(0.0, 0.0);
         }
 
         assert!(!control.has_signal());
@@ -1598,10 +1617,45 @@ mod tests {
         let control = SessionControl::new(1.0, false, false);
 
         for _ in 0..SIGNAL_CYCLES {
-            control.observe(SIGNAL_FLOOR);
+            control.observe(SIGNAL_FLOOR, SIGNAL_FLOOR);
         }
 
         assert!(!control.has_signal());
+    }
+
+    /// The meter draws what leaves for the device, not what the app produced.
+    ///
+    /// A slider pulled to zero has to read as silence. Metering the pre-gain level instead left a
+    /// bar bouncing beside the control the user had just used to stop the sound.
+    #[test]
+    fn a_silenced_session_meters_as_silence() {
+        let control = SessionControl::new(1.0, false, false);
+
+        control.observe(0.8, 0.0);
+
+        assert_eq!(control.take_peak(), 0.0);
+    }
+
+    #[test]
+    fn the_meter_follows_the_slider_down() {
+        let control = SessionControl::new(1.0, false, false);
+
+        control.observe(0.8, 0.4);
+
+        assert_eq!(control.take_peak(), 0.4);
+    }
+
+    /// The other half of the split. Turning a slider down must not look like the app went quiet on
+    /// its own — the run is what decides Somul has heard it, and losing it would drop the row.
+    #[test]
+    fn a_silenced_session_is_still_heard_playing() {
+        let control = SessionControl::new(1.0, false, false);
+
+        for _ in 0..SIGNAL_CYCLES {
+            control.observe(0.5, 0.0);
+        }
+
+        assert!(control.has_signal());
     }
 
     /// Meters must keep working for an app still short of the run, or a row that does appear
@@ -1610,7 +1664,7 @@ mod tests {
     fn a_level_below_the_run_still_reaches_the_meter() {
         let control = SessionControl::new(1.0, false, false);
 
-        control.observe(0.5);
+        control.observe(0.5, 0.5);
 
         assert!(!control.has_signal());
         assert_eq!(control.take_peak(), 0.5);
@@ -1917,15 +1971,32 @@ mod tests {
         assert!(output.samples.iter().all(|sample| *sample == 0.0));
     }
 
-    /// Peak is pre-gain, so the meter shows what the app is producing rather than what the user
-    /// turned it down to.
+    /// Peak is post-gain: the meter shows what is leaving for the device, which is what the user
+    /// can hear. Reported pre-gain, a slider pulled to zero left a bar bouncing beside the control
+    /// that had just stopped the sound.
+    ///
+    /// The app's own level is still observed — it is what decides whether Somul has heard the app
+    /// at all — it just is not what the bar draws. See [`SessionControl::observe`].
     #[test]
-    fn reports_the_peak_before_gain_is_applied() {
+    fn reports_the_peak_after_gain_is_applied() {
         let input = Buffers::new(2, 4, 0.8);
         let output = Buffers::new(2, 4, 0.0);
         let controls = vec![control(0.1, false)];
 
         unsafe { mix(&input.view(), &output.view(), 4, 4, &controls, false) };
+
+        assert!((controls[0].take_peak() - 0.08).abs() < 1e-6);
+    }
+
+    /// A probing tap is passthrough: this callback writes silence and the hardware plays the app
+    /// itself, so the gain reaches nobody and the audible level is the app's own.
+    #[test]
+    fn reports_the_apps_own_level_while_probing() {
+        let input = Buffers::new(2, 4, 0.8);
+        let output = Buffers::new(2, 4, 0.0);
+        let controls = vec![control(0.1, false)];
+
+        unsafe { mix(&input.view(), &output.view(), 4, 4, &controls, true) };
 
         assert!((controls[0].take_peak() - 0.8).abs() < 1e-6);
     }
