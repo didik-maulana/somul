@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::audio::{AudioBackend, AudioSession, MasterState, PlatformCapabilities, SessionPeak};
 
@@ -43,9 +43,13 @@ const MASTER_POLL_EVERY_TICKS: u32 = 6;
 
 /// The session list is polled far more slowly than the master state. Enumerating processes is
 /// markedly more expensive than reading one volume, and on macOS a change to the set also rebuilds
-/// the tap graph — so asking too eagerly turns a background poll into an audible one. Every 30th
-/// tick is once a second, which is faster than a user can notice an app missing from the list.
-const SESSION_POLL_EVERY_TICKS: u32 = 30;
+/// the tap graph — so asking too eagerly turns a background poll into an audible one.
+///
+/// This is the floor under a backend with no notification, not the path a change normally takes:
+/// `sessions_may_have_changed` picks one up on the very next tick. Every 90th tick is once every
+/// three seconds, which keeps the enumeration off the meter's frame budget — at 30 ticks the
+/// hitch it costs landed once a second, and a peak meter running beside it showed the stall.
+const SESSION_POLL_EVERY_TICKS: u32 = 90;
 
 /// Volume arrives as a float from the OS, so an exact comparison would emit on rounding noise.
 const VOLUME_EPSILON: f32 = 0.001;
@@ -125,14 +129,24 @@ impl MeterGate {
         is_running.load(Ordering::Acquire)
     }
 
-    /// Sleeps one tick, waking early if the panel is hidden so the loop stops promptly.
-    fn wait_for_next_tick(&self, is_running: &AtomicBool) {
+    /// Sleeps until `deadline`, waking early if the panel is hidden so the loop stops promptly.
+    ///
+    /// Sleeping a whole `TICK` after the work instead would make the period `TICK` plus however
+    /// long the tick took, so every master poll and every session enumeration stretched the gap
+    /// between two peak batches. Against a deadline the work is absorbed rather than added, and a
+    /// tick that overran its budget takes no sleep at all rather than compounding the delay.
+    fn wait_until(&self, deadline: Instant) {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+
+        if remaining.is_zero() {
+            return;
+        }
+
         let visible = self.guard();
         let _ = self
             .changed
-            .wait_timeout(visible, TICK)
+            .wait_timeout(visible, remaining)
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let _ = is_running;
     }
 }
 
@@ -183,6 +197,8 @@ impl MeterLoop {
                             break;
                         }
                     }
+
+                    let deadline = Instant::now() + TICK;
 
                     if let Ok(peaks) = backend.read_peaks() {
                         emitter.emit_peaks(&peaks);
@@ -244,7 +260,7 @@ impl MeterLoop {
                     }
 
                     tick = tick.wrapping_add(1);
-                    gate.wait_for_next_tick(&is_running);
+                    gate.wait_until(deadline);
                 }
             }
         });
@@ -511,6 +527,40 @@ mod tests {
     fn runs_at_thirty_hertz() {
         assert_eq!(METER_HZ, 30);
         assert_eq!(TICK, Duration::from_nanos(33_333_333));
+    }
+
+    /// The drift guard. A tick's work must come out of its sleep, not land on top of it.
+    ///
+    /// Sleeping a fixed `TICK` after the work made the real period `TICK` plus the work, so the
+    /// meter fell behind 30 Hz by however long the master poll and the session enumeration took.
+    #[test]
+    fn work_inside_a_tick_comes_out_of_its_sleep() {
+        let gate = MeterGate::new();
+        let deadline = Instant::now() + TICK;
+
+        thread::sleep(TICK / 2);
+
+        let started = Instant::now();
+        gate.wait_until(deadline);
+
+        assert!(
+            started.elapsed() < TICK,
+            "half the tick was already spent, so the remaining sleep must be under a full tick"
+        );
+    }
+
+    /// A tick that overran its budget catches up instead of compounding the delay.
+    #[test]
+    fn an_overrunning_tick_takes_no_sleep() {
+        let gate = MeterGate::new();
+        let started = Instant::now();
+
+        gate.wait_until(Instant::now() - TICK);
+
+        assert!(
+            started.elapsed() < TICK,
+            "a deadline already in the past must not sleep at all"
+        );
     }
 
     /// Hidden means stopped, not throttled. This is the CPU budget's enforcement point.
@@ -856,7 +906,7 @@ mod tests {
             Arc::clone(&emitter) as Arc<dyn PanelEventEmitter>,
         );
 
-        thread::sleep(TICK * (SESSION_POLL_EVERY_TICKS * 2 + 4));
+        thread::sleep(TICK * (SESSION_POLL_EVERY_TICKS + 4));
         loop_under_test.stop();
 
         assert_eq!(
