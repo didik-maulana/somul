@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -40,6 +40,30 @@ const renderRow = (overrides: Partial<Parameters<typeof AppAudioRow>[0]> = {}) =
     row: screen.getByTestId('app-audio-row'),
   };
 };
+
+describe('AppAudioRow routing', () => {
+  it('shows no picker where the platform cannot route', () => {
+    renderRow();
+
+    expect(screen.queryByTestId('session-device-selector')).toBeNull();
+  });
+
+  it('shows one once devices and a handler arrive', () => {
+    renderRow({
+      devices: [
+        {
+          deviceId: 'mock:speakers' as DeviceId,
+          name: 'MacBook Pro Speakers',
+          isDefault: true,
+          isAvailable: true,
+        },
+      ],
+      onDeviceSelect: vi.fn(),
+    });
+
+    expect(screen.getByTestId('session-device-selector')).toBeInTheDocument();
+  });
+});
 
 describe('AppAudioRow peak meter', () => {
   it('stays out of the row until the platform reports a meter', () => {
@@ -83,10 +107,26 @@ describe('AppAudioRow', () => {
     expect(name).toHaveClass('truncate');
   });
 
-  it('holds one height for every row, so the list scans as a column', () => {
+  /// Height follows the content now that a row can carry a meter and a device picker. What still
+  /// has to hold is that two rows given the same controls come out identical, or the list stops
+  /// scanning as a column -- so this pins the uniformity rather than a pixel value that had to be
+  /// re-measured every time the row gained a line.
+  it('gives two rows with the same controls the same shape', () => {
+    const { row } = renderRow();
+    const first = row.className;
+
+    cleanup();
+
+    const { row: second } = renderRow();
+
+    expect(second.className).toBe(first);
+  });
+
+  it('sizes itself from its content rather than a fixed height', () => {
     const { row } = renderRow();
 
-    expect(row).toHaveClass('h-16');
+    expect(row.className).not.toMatch(/\bh-\[?\d/);
+    expect(row).toHaveClass('py-2.5');
   });
 
   it('falls back to a gradient tile when the OS supplies no icon', () => {
@@ -127,10 +167,11 @@ describe('AppAudioRow', () => {
   });
 
   describe('the six row states', () => {
-    it('1. default — transparent with no border colour', () => {
+    /** A card at rest, so four lines of one app do not run into four lines of the next. */
+    it('1. default — a bordered card, quieter than the master', () => {
       const { row } = renderRow();
 
-      expect(row).toHaveClass('border-transparent');
+      expect(row).toHaveClass('bg-card', 'border-border', 'backdrop-blur-md');
       expect(row).toHaveAttribute('data-state', 'active');
     });
 
@@ -138,12 +179,9 @@ describe('AppAudioRow', () => {
     it('2. hover — lifts onto the master card surface', () => {
       const { row } = renderRow();
 
-      expect(row).toHaveClass(
-        'hover:bg-card',
-        'hover:border-border',
-        'hover:card-raised',
-        'hover:backdrop-blur-md',
-      );
+      // The surface is already the master's at rest, so hover adds only the elevation the row
+      // gives up to rank below it.
+      expect(row).toHaveClass('hover:border-ring/35', 'hover:card-raised', 'hover:shadow-xs');
     });
 
     /**

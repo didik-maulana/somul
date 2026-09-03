@@ -115,6 +115,16 @@ export const MasterVolumeCard: FC<MasterVolumeCardProps> = ({
           {deviceName}
         </span>
 
+        {/* Says which device the unrouted apps follow. Worth the space only once apps can be
+            somewhere else: before routing, every app was on this device and naming it as the
+            default would have been telling the user something they had no way to act on. */}
+        <span
+          data-testid="master-default-chip"
+          className="text-micro text-primary-stroke border-primary-stroke/40 shrink-0 rounded-xs border px-1.5 py-0.5 font-medium tracking-wide"
+        >
+          DEFAULT
+        </span>
+
         {isMuted && isVolumeControllable && (
           <span
             data-testid="master-muted-chip"

@@ -3,16 +3,20 @@ import { Volume1, Volume2, VolumeX } from 'lucide-react';
 
 import { AppIcon } from '@/features/mixer/components/AppIcon';
 import { PeakMeter } from '@/features/mixer/components/PeakMeter';
+import { SessionDeviceSelector } from '@/features/mixer/components/SessionDeviceSelector';
 import { VolumeSlider } from '@/features/mixer/components/VolumeSlider';
 import { formatPercent } from '@/lib/audio';
 import { cn } from '@/lib/utils';
-import type { AudioSession } from '@/types/ipc';
+import type { AudioDevice, AudioSession, DeviceId } from '@/types/ipc';
 
 export interface AppAudioRowProps {
   session: AudioSession;
   isDragging?: boolean;
   /** Platform capability, decided upstream. A row never asks the backend what it can do. */
   hasMeter?: boolean;
+  /** Empty unless the platform reports routing, which is what hides the picker entirely. */
+  devices?: AudioDevice[];
+  onDeviceSelect?: (deviceId: DeviceId | null) => void;
   onVolumeChange: (volume: number) => void;
   onVolumeCommit: (volume: number) => void;
   onMuteToggle: () => void;
@@ -37,6 +41,8 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
   session,
   isDragging = false,
   hasMeter = false,
+  devices = [],
+  onDeviceSelect,
   onVolumeChange,
   onVolumeCommit,
   onMuteToggle,
@@ -55,6 +61,9 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
   // A row Somul is not carrying has no peaks to read, and a meter parked at silence beside an app
   // that is audibly playing is worse than no meter at all.
   const isMeterVisible = hasMeter && !isDisabled;
+  // Both halves are required. Without devices there is nothing to pick, and without a handler the
+  // pick would go nowhere — either way a picker would be a control that does not control.
+  const isRoutable = devices.length > 0 && onDeviceSelect !== undefined;
 
   return (
     <div
@@ -63,13 +72,23 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
       data-muted={isMuted}
       data-dragging={isDragging}
       className={cn(
-        'group bg-secondary/15 flex items-center gap-2.5 rounded-lg border border-transparent px-2.5 backdrop-blur-xs',
-        isMeterVisible ? 'h-[86px]' : 'h-16',
+        // Height follows the content rather than being enumerated. The row carries a name, a
+        // slider, and up to two optional lines; pinning a pixel height for each combination meant
+        // four magic numbers that had to be re-measured every time one of them gained a control.
+        // The master card's surface, one rank down. A row carries a name, a device picker, a
+        // slider and a meter, and with only a tint behind them the four lines of one app ran into
+        // the four of the next — the eye had nothing to cut the list on.
+        //
+        // What makes the master read as a card is not its fill but the blur behind it: the fill
+        // alone is translucent enough to disappear over a dark panel, which is why tinting the
+        // row harder never worked. So the row takes the same `card` fill and the same blur, and
+        // gives up only the raised shadow. Rank is carried by elevation, not by being fainter.
+        'group bg-card border-border flex items-center gap-2.5 rounded-lg border px-2.5 py-2.5 backdrop-blur-md',
         'transition-[background-color,border-color,box-shadow] duration-[140ms] ease-[var(--ease-standard)]',
         // Hover lifts the row onto the master card's surface, so the two read as one family of
         // control rather than two. Rest stays quieter than the master: the card it is borrowing
         // outranks it, and matching at rest as well would flatten that.
-        'hover:bg-card hover:border-border hover:backdrop-blur-md hover:card-raised hover:shadow-xs',
+        'hover:border-ring/35 hover:card-raised hover:shadow-xs',
         // No focus ring on the row. Dragging the slider put a blue rectangle around the whole
         // row for the length of the drag, which read as an error state on the thing being
         // adjusted. Keyboard focus is shown where it actually is: on the thumb and on the glyph.
@@ -87,7 +106,7 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
         )}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex items-center gap-2">
           <span
             title={displayName}
@@ -132,6 +151,16 @@ export const AppAudioRow: React.FC<AppAudioRowProps> = ({
             </span>
           )}
         </div>
+
+        {isRoutable && (
+          <SessionDeviceSelector
+            appName={displayName}
+            devices={devices}
+            deviceId={session.outputDeviceId}
+            isDisabled={isDisabled}
+            onDeviceSelect={onDeviceSelect}
+          />
+        )}
 
         <div className="flex items-center gap-2.5">
           <button

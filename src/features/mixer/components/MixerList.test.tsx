@@ -40,6 +40,8 @@ const renderList = (overrides: Partial<Parameters<typeof MixerList>[0]> = {}) =>
       sessions={[session('mock:s:1', 'Spotify')]}
       draggingSessionIds={new Set<SessionId>()}
       isPeakMeterEnabled
+      devices={[]}
+      onSessionDeviceSelect={vi.fn()}
       onVolumeChange={vi.fn()}
       onVolumeCommit={vi.fn()}
       onMuteToggle={vi.fn()}

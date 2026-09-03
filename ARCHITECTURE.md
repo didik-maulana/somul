@@ -100,6 +100,30 @@ setter. It is capture, attenuate, re-render.
 The render callback runs on a realtime thread. It allocates nothing, takes no locks, and reads
 gain, mute, and peak through atomics. A stall there is an audible dropout.
 
+### 3.1.1 Per-app output routing
+
+Sending two apps to two devices means two aggregates: one per destination, each clocked from its
+own output, each with its own IO proc. The alternative — one aggregate spanning several output
+devices — needs drift compensation between independent clocks, which is the arrangement Bluetooth
+fails at. `routing_spike` in `engine.rs` pins the assumption the split rests on: two aggregates on
+two outputs do run at once.
+
+`build` groups the tap set by destination and starts one aggregate per group. Groups on a
+non-default device are started first, so a device that refuses hands its apps back to the default
+group before that group is built — a flaky destination costs one app its device, never everyone
+else their audio.
+
+A destination is stored as **absence** when the app follows the system, and as a device id when it
+is pinned — including when that id is the device currently default. The two are different
+promises: the first moves with the system output, the second does not, and collapsing them would
+take away the only way to say "leave this one here whatever I do with the master".
+
+That distinction is why the in-place `retarget` runs only while the whole mix is one aggregate of
+followers. With anything pinned it is wrong twice: an app pinned to whichever device is default
+today rides in the followers' aggregate and would be dragged along, and moving the followers onto a
+device some pinned aggregate already occupies would leave two aggregates on one device. Routing
+therefore pays a rebuild when the system output changes; nothing routed keeps the old fast path.
+
 ### 3.2 Permission
 
 Process taps are audio capture, gated by the TCC service behind `NSAudioCaptureUsageDescription`
@@ -463,7 +487,7 @@ interface AppSettings {
   theme: 'dark' | 'light' | 'system';
   shouldLaunchAtLogin: boolean;
   shouldShowPeakMeter: boolean;                // default true
-  routingPresets: Record<string, string>;      // processName -> deviceId, reserved
+  routingPresets: Record<string, string>;      // processName -> deviceId; absent means it follows the default
   volumeMemory: Record<string, number>;        // processName -> last volume
   muteMemory: Record<string, boolean>;         // processName -> last mute state
 }

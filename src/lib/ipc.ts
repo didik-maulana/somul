@@ -129,9 +129,10 @@ export const setPanelVisibility = (isVisible: boolean): Promise<void> =>
   mutation('set_panel_visibility', { isVisible });
 
 /** v1.1. Present for contract completeness; v1.0 backends reject it with `unsupported`. */
+/** A null `deviceId` puts the session back to following the system default. */
 export const setSessionOutputDevice = (
   sessionId: SessionId,
-  deviceId: DeviceId,
+  deviceId: DeviceId | null,
 ): Promise<void> => mutation('set_session_output_device', { sessionId, deviceId });
 
 export const getSettings = (): Promise<AppSettings> => command<AppSettings>('get_settings');

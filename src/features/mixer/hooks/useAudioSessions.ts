@@ -6,11 +6,12 @@ import {
   onCapabilitiesChanged,
   onSessionsChanged,
   setSessionMute,
+  setSessionOutputDevice,
   setSessionVolume,
   toAudioError,
 } from '@/lib/ipc';
 import { useAudioStore } from '@/stores/audioStore';
-import type { AudioSession, SessionId } from '@/types/ipc';
+import type { AudioSession, DeviceId, SessionId } from '@/types/ipc';
 
 export interface AudioSessions {
   sessions: AudioSession[];
@@ -19,6 +20,8 @@ export interface AudioSessions {
   changeVolume: (sessionId: SessionId, volume: number) => void;
   commitVolume: (sessionId: SessionId, volume: number) => Promise<void>;
   toggleMute: (session: AudioSession) => Promise<void>;
+  /** Null sends the app back to following the system default. */
+  routeSession: (sessionId: SessionId, deviceId: DeviceId | null) => Promise<void>;
   startDragging: (sessionId: SessionId) => void;
   stopDragging: (sessionId: SessionId) => void;
 }
@@ -143,10 +146,21 @@ export const useAudioSessions = (): AudioSessions => {
     [setSessionMutedLocally],
   );
 
+  // Refreshed rather than patched locally: routing rebuilds the mix, and the backend is the only
+  // thing that knows where each app actually landed once a destination refuses.
+  const routeSession = useCallback(
+    async (sessionId: SessionId, deviceId: DeviceId | null) => {
+      await setSessionOutputDevice(sessionId, deviceId);
+      refresh();
+    },
+    [refresh],
+  );
+
   return {
     sessions,
     hasPerAppVolume,
     refresh,
+    routeSession,
     changeVolume,
     commitVolume,
     toggleMute,

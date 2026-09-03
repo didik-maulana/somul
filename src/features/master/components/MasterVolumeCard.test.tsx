@@ -156,4 +156,10 @@ describe('MasterVolumeCard', () => {
 
     expect(screen.getByRole('button', { name: 'Change output' })).toBeInTheDocument();
   });
+
+  it('names itself the default, so a routed row reads as the exception', () => {
+    renderCard();
+
+    expect(screen.getByTestId('master-default-chip')).toHaveTextContent('DEFAULT');
+  });
 });

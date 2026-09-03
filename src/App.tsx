@@ -168,6 +168,10 @@ export const App: FC = () => {
             sessions={sessions.sessions}
             draggingSessionIds={draggingSessionIds}
             isPeakMeterEnabled={settings.settings?.shouldShowPeakMeter ?? true}
+            devices={devices.devices}
+            onSessionDeviceSelect={(session, deviceId) => {
+              void sessions.routeSession(session.sessionId, deviceId);
+            }}
             onVolumeChange={handleSessionVolumeChange}
             onVolumeCommit={handleSessionVolumeCommit}
             onMuteToggle={(session) => {

@@ -7,7 +7,13 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { AppAudioRow } from '@/features/mixer/components/AppAudioRow';
 import { CapabilityNotice } from '@/features/mixer/components/CapabilityNotice';
 import { usePeakMeters } from '@/features/mixer/hooks/usePeakMeters';
-import type { AudioSession, PlatformCapabilities, SessionId } from '@/types/ipc';
+import type {
+  AudioDevice,
+  AudioSession,
+  DeviceId,
+  PlatformCapabilities,
+  SessionId,
+} from '@/types/ipc';
 
 export interface MixerListProps {
   capabilities: PlatformCapabilities | null;
@@ -15,6 +21,8 @@ export interface MixerListProps {
   draggingSessionIds: ReadonlySet<SessionId>;
   /** The user's setting. Gates the meter on top of whatever the platform can do. */
   isPeakMeterEnabled: boolean;
+  devices: AudioDevice[];
+  onSessionDeviceSelect: (session: AudioSession, deviceId: DeviceId | null) => void;
   onVolumeChange: (session: AudioSession, volume: number) => void;
   onVolumeCommit: (session: AudioSession, volume: number) => void;
   onMuteToggle: (session: AudioSession) => void;
@@ -33,6 +41,8 @@ export const MixerList: React.FC<MixerListProps> = ({
   sessions,
   draggingSessionIds,
   isPeakMeterEnabled,
+  devices,
+  onSessionDeviceSelect,
   onVolumeChange,
   onVolumeCommit,
   onMuteToggle,
@@ -43,6 +53,9 @@ export const MixerList: React.FC<MixerListProps> = ({
   const hasMeter = (capabilities?.hasPerAppMeter ?? false) && isPeakMeterEnabled;
 
   usePeakMeters(hasMeter);
+
+  // Empty unless the platform routes, which is what keeps the picker off a row it could not move.
+  const routableDevices = capabilities?.hasPerAppRouting === true ? devices : [];
 
   if (capabilities === null) {
     return <div data-testid="mixer-loading" className="flex-1" aria-busy="true" />;
@@ -80,13 +93,17 @@ export const MixerList: React.FC<MixerListProps> = ({
       </div>
 
       <ScrollArea className="min-h-0 flex-1 overscroll-contain" data-testid="mixer-scroll">
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-1.5">
           {sessions.map((session) => (
             <li key={session.sessionId}>
               <AppAudioRow
                 session={session}
                 isDragging={draggingSessionIds.has(session.sessionId)}
                 hasMeter={hasMeter}
+                devices={routableDevices}
+                onDeviceSelect={(deviceId) => {
+                  onSessionDeviceSelect(session, deviceId);
+                }}
                 onVolumeChange={(volume) => {
                   onVolumeChange(session, volume);
                 }}
