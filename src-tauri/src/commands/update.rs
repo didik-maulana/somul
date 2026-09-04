@@ -188,7 +188,6 @@ Set SOMUL_FAKE_UPDATE to the running version to see the up-to-date state instead
 ///
 /// It stands in for the *check*, never the install: nothing is remembered as pending, so pressing
 /// Install afterwards fails the way an install with no release does.
-#[cfg(debug_assertions)]
 /// Whether an update is on disk waiting for the process to be replaced.
 fn is_awaiting_restart(settled: &Settled) -> bool {
     settled.phase == UpdatePhase::Installed
@@ -254,6 +253,7 @@ async fn fake_install<R: Runtime>(
     Ok(())
 }
 
+#[cfg(debug_assertions)]
 fn fake_settled(current_version: &str, requested: Option<String>) -> Option<Settled> {
     let requested = requested?;
     let announced = requested.trim();
