@@ -54,7 +54,7 @@ print it by default.
 | `npm run test:watch` | Vitest in watch mode. |
 | `npm run audit:contrast` | Checks the colour tokens in `src/styles/index.css` against WCAG contrast thresholds. |
 | `scripts/reset-local-state.sh` | Wipes Somul's settings, memory, and TCC grant for a clean first-run test. |
-| `scripts/serve-test-update.sh` | Serves a locally signed update feed so the updater can be exercised end to end. `SOMUL_FAKE_UPDATE=9.9.9 npm run tauri dev` is enough to see the banner without it. |
+| `scripts/serve-test-update.sh` | Serves a locally signed update feed so the updater can be exercised end to end. `SOMUL_FAKE_UPDATE=9.9.9 npm run tauri dev` is enough to see the banner without it, and in a debug build Install then walks a fake download to "Update installed" without touching disk, so the release-notes window's whole flow can be exercised. |
 
 ## How the code is organised
 

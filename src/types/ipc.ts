@@ -143,6 +143,8 @@ export interface UpdateSnapshot {
   availableVersion: string | null;
   /** Release notes as published in the manifest. */
   notes: string | null;
+  /** Why the last install failed. Null outside `failed`. */
+  reason: string | null;
 }
 
 /** Mirrors `UpdateProgress` in `src-tauri/src/commands/update.rs`. */

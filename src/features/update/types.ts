@@ -24,4 +24,6 @@ export interface UpdateStatus {
    * the bar has to fall back to an indeterminate one rather than invent a position.
    */
   downloadFraction: number | null;
+  /** Why the last install failed, when the backend could say. Null outside `failed`. */
+  reason: string | null;
 }

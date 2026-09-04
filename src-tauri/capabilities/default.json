@@ -1,8 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Baseline permissions for the Somul tray panel",
-  "windows": ["main"],
+  "description": "Both windows. A window matched by no capability can still invoke the app's own commands, but plugin commands are refused for it -- including core:event listen. Left off this list, the release-notes window could start an install and never hear it finish.",
+  "windows": [
+    "main",
+    "update"
+  ],
   "permissions": [
     "core:default",
     "store:default",

@@ -15,6 +15,7 @@ const upToDate: UpdateStatus = {
   availableVersion: null,
   notes: null,
   downloadFraction: null,
+  reason: null,
 };
 
 const settings: AppSettings = {
@@ -201,6 +202,7 @@ describe('SettingsView', () => {
         availableVersion: '1.1.0',
         notes: null,
         downloadFraction: null,
+        reason: null,
       },
     });
 
@@ -221,6 +223,7 @@ describe('SettingsView', () => {
         availableVersion: '1.1.0',
         notes: null,
         downloadFraction: null,
+        reason: null,
       },
     });
 

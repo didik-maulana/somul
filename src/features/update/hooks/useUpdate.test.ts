@@ -68,6 +68,7 @@ const upToDate: UpdateSnapshot = {
   currentVersion: '1.0.0',
   availableVersion: null,
   notes: null,
+  reason: null,
 };
 
 const newRelease: UpdateSnapshot = {
@@ -75,6 +76,7 @@ const newRelease: UpdateSnapshot = {
   currentVersion: '1.0.0',
   availableVersion: '1.1.0',
   notes: '## Mixer\n- Fixes the meter',
+  reason: null,
 };
 
 beforeEach(() => {

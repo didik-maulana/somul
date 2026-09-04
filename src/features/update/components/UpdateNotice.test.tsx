@@ -11,6 +11,7 @@ const available: UpdateStatus = {
   availableVersion: '1.1.0',
   notes: 'Fixes the meter',
   downloadFraction: null,
+  reason: null,
 };
 
 const renderNotice = (status: UpdateStatus = available) => {

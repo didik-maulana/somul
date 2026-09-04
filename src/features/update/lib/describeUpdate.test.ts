@@ -9,6 +9,7 @@ const status = (overrides: Partial<UpdateStatus>): UpdateStatus => ({
   availableVersion: null,
   notes: null,
   downloadFraction: null,
+  reason: null,
   ...overrides,
 });
 

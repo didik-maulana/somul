@@ -68,6 +68,12 @@ pub struct UpdateSnapshot {
     /// Release notes as published in the manifest, so the user can read what the update changes
     /// before committing to a restart.
     pub notes: Option<String>,
+    /// Why the last install failed, in words the window can show. `None` outside `Failed`.
+    ///
+    /// Without it a failed install rendered as "Install update" again — the failure kept
+    /// `available_version`, and the window read that as an update still waiting rather than one
+    /// that had just been refused. Every click retried, every retry failed, nothing said so.
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -75,6 +81,7 @@ struct Settled {
     phase: UpdatePhase,
     available_version: Option<String>,
     notes: Option<String>,
+    reason: Option<String>,
 }
 
 /// The update found by the last check, and what the app has been told about it.
@@ -106,6 +113,7 @@ impl UpdateState {
             current_version,
             available_version: settled.available_version.clone(),
             notes: settled.notes.clone(),
+            reason: settled.reason.clone(),
         }
     }
 
@@ -181,6 +189,71 @@ Set SOMUL_FAKE_UPDATE to the running version to see the up-to-date state instead
 /// It stands in for the *check*, never the install: nothing is remembered as pending, so pressing
 /// Install afterwards fails the way an install with no release does.
 #[cfg(debug_assertions)]
+/// Whether an update is on disk waiting for the process to be replaced.
+fn is_awaiting_restart(settled: &Settled) -> bool {
+    settled.phase == UpdatePhase::Installed
+}
+
+/// The state after an install that did not happen: still the same release on offer, so the
+/// button to try again stays, and now a reason beside it.
+fn failed_after(settled: Settled, reason: &str) -> Settled {
+    Settled {
+        phase: UpdatePhase::Failed,
+        reason: Some(reason.to_owned()),
+        ..settled
+    }
+}
+
+/// Walks a fake install: progress in steps, then `Installed`, touching nothing on disk.
+#[cfg(debug_assertions)]
+async fn fake_install<R: Runtime>(
+    app: &AppHandle<R>,
+    state: &UpdateState,
+    settled: Settled,
+) -> Result<(), String> {
+    use tauri::Emitter;
+
+    const STEPS: u64 = 12;
+    const TOTAL: u64 = 11_000_000;
+
+    publish(
+        app,
+        state,
+        Settled {
+            phase: UpdatePhase::Installing,
+            ..settled.clone()
+        },
+    );
+
+    for step in 1..=STEPS {
+        let emitter = app.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            std::thread::sleep(std::time::Duration::from_millis(140));
+            let _ = emitter.emit(
+                UPDATE_PROGRESS_EVENT,
+                UpdateProgress {
+                    downloaded: TOTAL * step / STEPS,
+                    total: Some(TOTAL),
+                },
+            );
+        })
+        .await
+        .map_err(|error| error.to_string())?;
+    }
+
+    publish(
+        app,
+        state,
+        Settled {
+            phase: UpdatePhase::Installed,
+            reason: None,
+            ..settled
+        },
+    );
+
+    Ok(())
+}
+
 fn fake_settled(current_version: &str, requested: Option<String>) -> Option<Settled> {
     let requested = requested?;
     let announced = requested.trim();
@@ -203,6 +276,7 @@ fn fake_settled(current_version: &str, requested: Option<String>) -> Option<Sett
         // plainly what they are: a development override reading like a real changelog is its own
         // kind of confusion.
         notes: Some(FAKE_UPDATE_NOTES.to_owned()),
+    reason: None,
     })
 }
 
@@ -221,6 +295,14 @@ pub async fn check_for_update<R: Runtime>(
     state: State<'_, UpdateState>,
 ) -> Result<UpdateSnapshot, String> {
     let current_version = app.package_info().version.to_string();
+
+    // An update already on disk outranks whatever the endpoint says now. The endpoint keeps
+    // advertising the same release until this process is replaced, so checking again would report
+    // it as merely available — and both windows would drop "Restart" for "Install", offering to
+    // download what is already installed.
+    if is_awaiting_restart(&state.settled()) {
+        return Ok(state.snapshot(current_version));
+    }
 
     #[cfg(debug_assertions)]
     if let Some(settled) = fake_settled(&current_version, std::env::var("SOMUL_FAKE_UPDATE").ok()) {
@@ -252,6 +334,7 @@ pub async fn check_for_update<R: Runtime>(
                 phase: UpdatePhase::Available,
                 available_version: Some(update.version.clone()),
                 notes: update.body.clone(),
+            reason: None,
             },
             None => Settled {
                 phase: UpdatePhase::UpToDate,
@@ -278,11 +361,25 @@ pub async fn install_update<R: Runtime>(
 ) -> Result<(), String> {
     // The guard is dropped before the download starts. Holding it across the await would block
     // every later check behind a transfer that can take minutes.
+    let settled = state.settled().clone();
+
+    // Debug builds can walk the whole install flow against the announced fake, with no feed and
+    // nothing written to disk. This is how the windows' installing, installed and restart states
+    // are exercised at all: a real update needs a published release to test against.
+    #[cfg(debug_assertions)]
+    if std::env::var("SOMUL_FAKE_UPDATE").is_ok_and(|value| !value.trim().is_empty()) {
+        return fake_install(&app, &state, settled).await;
+    }
+
     let Some(update) = state.take() else {
+        publish(
+            &app,
+            &state,
+            failed_after(settled, "No update is ready to install. Check again first."),
+        );
+
         return Err("No update is ready to install.".to_owned());
     };
-
-    let settled = state.settled().clone();
 
     publish(
         &app,
@@ -330,13 +427,13 @@ pub async fn install_update<R: Runtime>(
     publish(
         &app,
         &state,
-        Settled {
-            phase: if outcome.is_ok() {
-                UpdatePhase::Installed
-            } else {
-                UpdatePhase::Failed
+        match &outcome {
+            Ok(()) => Settled {
+                phase: UpdatePhase::Installed,
+                reason: None,
+                ..settled
             },
-            ..settled
+            Err(reason) => failed_after(settled, reason),
         },
     );
 
@@ -367,6 +464,7 @@ mod tests {
             current_version: "1.0.0".to_owned(),
             available_version: Some("1.1.0".to_owned()),
             notes: Some("Fixes the meter".to_owned()),
+            reason: None,
         })
         .expect("a snapshot serializes");
 
@@ -377,6 +475,39 @@ mod tests {
     }
 
     /// Both windows branch on this string, so its spelling is part of the contract.
+    /// The endpoint keeps advertising a release until the process is replaced, so a check after
+    /// an install would demote "Restart" back to "Install" in both windows.
+    #[test]
+    fn an_update_already_on_disk_is_not_checked_away() {
+        assert!(is_awaiting_restart(&Settled {
+            phase: UpdatePhase::Installed,
+            ..Settled::default()
+        }));
+        assert!(!is_awaiting_restart(&Settled {
+            phase: UpdatePhase::Available,
+            ..Settled::default()
+        }));
+    }
+
+    /// A refused install keeps the release on offer and says why. Dropping the version would hide
+    /// the retry; dropping the reason is what made every failed click look like no click at all.
+    #[test]
+    fn a_failed_install_keeps_the_offer_and_carries_a_reason() {
+        let failed = failed_after(
+            Settled {
+                phase: UpdatePhase::Installing,
+                available_version: Some("1.1.0".to_owned()),
+                notes: Some("notes".to_owned()),
+                reason: None,
+            },
+            "signature mismatch",
+        );
+
+        assert_eq!(failed.phase, UpdatePhase::Failed);
+        assert_eq!(failed.available_version.as_deref(), Some("1.1.0"));
+        assert_eq!(failed.reason.as_deref(), Some("signature mismatch"));
+    }
+
     #[test]
     fn every_phase_serializes_as_the_name_the_frontend_switches_on() {
         let names = [
@@ -417,6 +548,7 @@ mod tests {
             current_version: "1.0.0".to_owned(),
             available_version: None,
             notes: None,
+            reason: None,
         })
         .expect("a snapshot serializes");
 

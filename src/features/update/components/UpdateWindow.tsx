@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { ReleaseNotes } from '@/features/update/components/ReleaseNotes';
 import { UpdateProgressBar } from '@/features/update/components/UpdateProgressBar';
 import { useUpdate } from '@/features/update/hooks/useUpdate';
+import { cn } from '@/lib/utils';
 
 /**
  * The release-notes window.
@@ -18,10 +19,14 @@ import { useUpdate } from '@/features/update/hooks/useUpdate';
  */
 export const UpdateWindow: FC = () => {
   const update = useUpdate();
-  const { phase, currentVersion, availableVersion, notes, downloadFraction } = update.status;
+  const { phase, currentVersion, availableVersion, notes, downloadFraction, reason } =
+    update.status;
 
   const isInstalled = phase === 'installed';
   const isInstalling = phase === 'installing';
+  // A failure with a release still on offer is a refused install, not a check that could not
+  // reach the server -- and it must not look like an update that was never tried.
+  const hasFailedInstall = phase === 'failed' && availableVersion !== null;
 
   return (
     <div className="bg-background text-foreground flex h-[100dvh] flex-col">
@@ -85,11 +90,19 @@ export const UpdateWindow: FC = () => {
 
         {!isInstalling && !isInstalled && availableVersion && (
           <>
-            <p className="text-caption text-muted-foreground flex-1">
-              Somul keeps running while it downloads.
+            <p
+              data-testid="install-hint"
+              className={cn(
+                'text-caption flex-1',
+                hasFailedInstall ? 'text-destructive-text' : 'text-muted-foreground',
+              )}
+            >
+              {hasFailedInstall
+                ? (reason ?? 'The update could not be installed.')
+                : 'Somul keeps running while it downloads.'}
             </p>
             <Button type="button" size="sm" onClick={update.install}>
-              Install update
+              {hasFailedInstall ? 'Try again' : 'Install update'}
             </Button>
           </>
         )}

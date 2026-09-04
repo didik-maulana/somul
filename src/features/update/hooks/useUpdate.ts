@@ -166,6 +166,7 @@ export const useUpdate = ({ checksOnMount = false }: UpdateOptions = {}): Update
       availableVersion: snapshot?.availableVersion ?? null,
       notes: snapshot?.notes ?? null,
       downloadFraction,
+      reason: snapshot?.reason ?? null,
     },
     isNoticeVisible:
       !isDismissed && (phase === 'available' || phase === 'installing' || phase === 'installed'),

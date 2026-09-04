@@ -136,6 +136,16 @@ pub fn relaunch_app<R: Runtime>(app: AppHandle<R>) {
     // any other command — unguarded, it would restart the test binary.
     #[cfg(not(test))]
     {
+        use tauri::Manager;
+
+        // The release-notes window is what the user pressed Restart in, and the process it
+        // belongs to is about to be replaced. Closed here rather than left to the restart: a
+        // restart that is slow to take leaves a window still showing "Restart now" over an app
+        // that already agreed to it.
+        if let Some(window) = app.get_webview_window(crate::UPDATE_WINDOW_LABEL) {
+            let _ = window.close();
+        }
+
         #[cfg(desktop)]
         tauri_plugin_single_instance::destroy(&app);
 

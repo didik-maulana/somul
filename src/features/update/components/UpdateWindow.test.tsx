@@ -40,6 +40,7 @@ const available = {
   currentVersion: '1.0.0',
   availableVersion: '1.1.0',
   notes: LONG_NOTES,
+  reason: null,
 };
 
 beforeEach(() => {
@@ -129,5 +130,40 @@ describe('UpdateWindow', () => {
     });
 
     expect(screen.getByText('This release was published without notes.')).toBeInTheDocument();
+  });
+
+  /// A refused install used to render as "Install update" again: the failure kept the version on
+  /// offer, and the footer read that as an update never tried. Every click retried in silence.
+  it('says why an install was refused and offers to try again', async () => {
+    getUpdateStateSpy.mockResolvedValue({
+      ...available,
+      phase: 'failed' as const,
+      reason: 'The archive could not be unpacked.',
+    });
+
+    render(<UpdateWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('install-hint')).toHaveTextContent(
+        'The archive could not be unpacked.',
+      );
+    });
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('keeps the plain check-failed message when no release is on offer', async () => {
+    getUpdateStateSpy.mockResolvedValue({
+      phase: 'failed' as const,
+      currentVersion: '1.0.0',
+      availableVersion: null,
+      notes: null,
+      reason: null,
+    });
+
+    render(<UpdateWindow />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Could not reach the update server.')).toBeInTheDocument();
+    });
   });
 });
