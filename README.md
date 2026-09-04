@@ -35,6 +35,14 @@ Learn more at [somul.app](https://somul.app).
 **One fader per app.** Every app that is playing sound gets a row with its own slider and mute
 button.
 
+**A level meter on every row.** A segmented bar under each slider shows what that app is
+actually sending to the speaker, so you can see which one is making noise before you touch
+anything. Switch it off in Settings if you only want the sliders.
+
+**Send each app to its own output.** Music on the desk speakers while the call stays on your
+headphones. Pick a device on any row and it sticks; leave it on *System default* and it follows
+whatever the Mac is using.
+
 **Master volume up top.** The output device and system volume sit in the first row, so you never
 open Sound settings just to turn things down.
 
