@@ -21,6 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, Once};
 
 use coreaudio_sys::{
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDevices,
     kAudioHardwarePropertyProcessObjectList, kAudioObjectPropertyElementMain,
     kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
     kAudioProcessPropertyIsRunningOutput, AudioObjectAddPropertyListener, AudioObjectID,
@@ -35,8 +36,31 @@ use super::property::address;
 /// that as "unchanged" would leave the panel empty until an app happened to start playing.
 static HAS_CHANGED: AtomicBool = AtomicBool::new(true);
 
+/// Set when the set of devices changes, or when a different one becomes the default.
+///
+/// Separate from [`HAS_CHANGED`] because the two are consumed by different readers at different
+/// rates: sessions are re-enumerated on the meter tick, devices only when the panel needs a list.
+/// Starts `true` for the same reason: nothing has been observed yet.
+static DEVICES_CHANGED: AtomicBool = AtomicBool::new(true);
+
 /// The process objects currently carrying an output-running listener.
 static WATCHED: Mutex<Option<HashSet<AudioObjectID>>> = Mutex::new(None);
+
+fn device_list_address() -> AudioObjectPropertyAddress {
+    address(
+        kAudioHardwarePropertyDevices,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain,
+    )
+}
+
+fn default_output_address() -> AudioObjectPropertyAddress {
+    address(
+        kAudioHardwarePropertyDefaultOutputDevice,
+        kAudioObjectPropertyScopeGlobal,
+        kAudioObjectPropertyElementMain,
+    )
+}
 
 fn process_list_address() -> AudioObjectPropertyAddress {
     address(
@@ -64,6 +88,46 @@ unsafe extern "C" fn on_change(
     HAS_CHANGED.store(true, Ordering::Relaxed);
 
     0
+}
+
+/// Runs on a CoreAudio-owned thread. Same contract as [`on_change`].
+unsafe extern "C" fn on_device_change(
+    _object: AudioObjectID,
+    _count: UInt32,
+    _addresses: *const AudioObjectPropertyAddress,
+    _client_data: *mut c_void,
+) -> OSStatus {
+    DEVICES_CHANGED.store(true, Ordering::Relaxed);
+
+    0
+}
+
+/// Whether the device list or the default output has changed since this was last asked.
+///
+/// Both are watched through one flag because both mean the same thing to the caller: the list the
+/// panel is showing is out of date. A device appearing changes the set; macOS switching to it
+/// changes which entry is marked default, and the panel is wrong in either case.
+///
+/// Installs its listeners on first call, so nothing has to remember to start it.
+pub(super) fn take_device_change() -> bool {
+    static DEVICE_LISTENERS: Once = Once::new();
+
+    DEVICE_LISTENERS.call_once(|| {
+        for address in [device_list_address(), default_output_address()] {
+            // SAFETY: the address is read during the call and copied by CoreAudio; the listener is
+            // a plain function with no captured state, and the client data is deliberately null.
+            unsafe {
+                AudioObjectAddPropertyListener(
+                    kAudioObjectSystemObject,
+                    &address,
+                    Some(on_device_change),
+                    ptr::null_mut(),
+                )
+            };
+        }
+    });
+
+    DEVICES_CHANGED.swap(false, Ordering::Relaxed)
 }
 
 /// Whether anything has changed since this was last asked, clearing the flag.

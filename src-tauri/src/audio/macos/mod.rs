@@ -81,9 +81,16 @@ impl MacOsAudioBackend {
     /// process set is read. A tap set that drifts from the session list would show the user a row
     /// whose slider controls nothing.
     fn sessions(&self) -> Result<Vec<AudioSession>, AudioError> {
-        let processes = process::playing_applications()?;
+        let mut processes = process::playing_applications()?;
 
         self.engine.sync(&processes)?;
+
+        // `IsRunningOutput` drops for every app at once when the output device changes, and the
+        // taps deliberately survive that. The rows have to as well: a panel that empties itself
+        // while its own mixer is still carrying the music says something plainly untrue.
+        let listed: Vec<String> = processes.iter().map(process::ProcessSession::identifier).collect();
+
+        processes.extend(self.engine.carried_out_of_sight(&listed));
 
         // Rebuilding the taps belongs with the sync that owns them, not with the meter read.
         // macOS answers the capture question once per tap, so a permission granted after they
@@ -542,6 +549,10 @@ instead.",
     /// Answered by CoreAudio's own property listeners rather than by a timer.
     fn sessions_may_have_changed(&self) -> Option<bool> {
         Some(watch::take_change())
+    }
+
+    fn devices_may_have_changed(&self) -> Option<bool> {
+        Some(watch::take_device_change())
     }
 
     fn set_session_volume(&self, id: &SessionId, volume: f32) -> Result<(), AudioError> {
