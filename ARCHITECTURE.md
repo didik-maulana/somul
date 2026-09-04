@@ -108,21 +108,24 @@ devices — needs drift compensation between independent clocks, which is the ar
 fails at. `routing_spike` in `engine.rs` pins the assumption the split rests on: two aggregates on
 two outputs do run at once.
 
-`build` groups the tap set by destination and starts one aggregate per group. Groups on a
-non-default device are started first, so a device that refuses hands its apps back to the default
-group before that group is built — a flaky destination costs one app its device, never everyone
-else their audio.
+`build` groups the tap set by destination *and* by whether the app was pinned there, and starts
+one aggregate per group. The followers therefore never share an aggregate with an app pinned to
+the device the default happens to be on; two aggregates on one device is an arrangement the spike
+verifies. Groups on a non-default device are started first, so a device that refuses hands its
+apps back to the followers before their aggregate is built — a flaky destination costs one app its
+device, never everyone else their audio. Regrouping — a destination change, a new app needing a
+tap — restarts only the aggregates whose device or membership actually changed; the taps
+themselves are never touched, and an aggregate matched by device and by member key is left
+running.
 
 A destination is stored as **absence** when the app follows the system, and as a device id when it
 is pinned — including when that id is the device currently default. The two are different
 promises: the first moves with the system output, the second does not, and collapsing them would
 take away the only way to say "leave this one here whatever I do with the master".
 
-That distinction is why the in-place `retarget` runs only while the whole mix is one aggregate of
-followers. With anything pinned it is wrong twice: an app pinned to whichever device is default
-today rides in the followers' aggregate and would be dragged along, and moving the followers onto a
-device some pinned aggregate already occupies would leave two aggregates on one device. Routing
-therefore pays a rebuild when the system output changes; nothing routed keeps the old fast path.
+Because followers and pinned apps never share an aggregate, a change of system output is always an
+in-place `retarget` of the followers' aggregate alone. Pinned aggregates are not touched, whether
+the default moves onto their device or away from it.
 
 ### 3.2 Permission
 

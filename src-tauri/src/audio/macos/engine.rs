@@ -512,7 +512,6 @@ fn start_aggregate(
     slots: &[&TapSlot],
     mute: TapMute,
     is_default: bool,
-    holds_only_followers: bool,
 ) -> Result<Aggregate, AudioError> {
     let output_uid = device_uid(output)?;
     let tap_uids: Vec<&str> = slots.iter().map(|slot| slot._tap.uid()).collect();
@@ -533,7 +532,6 @@ fn start_aggregate(
         output,
         members: slots.iter().map(|slot| slot.key.clone()).collect(),
         is_default,
-        holds_only_followers,
         io_proc: None,
         is_running: false,
         render,
@@ -589,18 +587,14 @@ struct Aggregate {
     /// Carried here rather than beside the collection because it is a fact about one aggregate,
     /// and per-app routing gives the engine more than one of them at a time.
     output: AudioObjectID,
-    /// Whether this aggregate sits on the device the system currently calls default.
+    /// Whether this aggregate carries the apps that follow the system output.
+    ///
+    /// Only this one moves when the default changes. Followers and pinned apps never share an
+    /// aggregate, so moving it in place can never drag a pin along.
     is_default: bool,
     /// The keys of the apps it carries, so a regroup can tell a mix that has not changed from one
     /// that has and leave the unchanged one running.
     members: Vec<String>,
-    /// Whether every app in it follows the default rather than being pinned to this device.
-    ///
-    /// The two differ exactly when an app is pinned to whichever device happens to be default
-    /// today. Grouping is by device, so that app shares an aggregate with the followers — and
-    /// retargeting that aggregate when the default moves would drag it along, silently undoing
-    /// the pin. Such an aggregate is rebuilt instead of retargeted, which splits them apart.
-    holds_only_followers: bool,
     io_proc: AudioDeviceIOProcID,
     is_running: bool,
     /// Handed to the callback as a raw pointer. Kept boxed here so the allocation outlives every
@@ -1238,25 +1232,6 @@ impl EngineState {
             return Ok(());
         }
 
-        // The in-place move is only safe while the whole mix is one aggregate of followers.
-        //
-        // With anything pinned it is wrong twice over. An app pinned to whichever device happens
-        // to be default today rides in the same aggregate as the followers, so retargeting carries
-        // it along and silently undoes the pin. And moving the followers onto a device some pinned
-        // aggregate already occupies would leave two aggregates on one device, which is an
-        // arrangement nothing here has ever verified.
-        //
-        // A rebuild regroups by destination and gets both right. It costs a gap, which is why it
-        // is not the path taken when nothing is routed at all.
-        let is_one_group_of_followers = self.aggregates.len() == 1
-            && self.aggregates.iter().all(|aggregate| aggregate.holds_only_followers);
-
-        if !is_one_group_of_followers {
-            diagnose!("apps are routed, so the default move regroups rather than retargets");
-
-            return self.regroup(mute);
-        }
-
         // Only the aggregates carrying the apps that follow the system output. One routed
         // somewhere on purpose stays where it was put.
         let following: Vec<&mut Aggregate> = self
@@ -1490,8 +1465,12 @@ impl EngineState {
         mute: TapMute,
     ) -> Result<(), AudioError> {
         let available = super::output_device_ids().unwrap_or_default();
-        let mut groups: BTreeMap<AudioObjectID, Vec<usize>> = BTreeMap::new();
-        let mut pinned: Vec<bool> = vec![false; slots.len()];
+        // Keyed by device *and* by whether the app was pinned there, so the followers never share
+        // an aggregate with an app pinned to the device the default happens to be on. Grouped by
+        // device alone they merged whenever the default landed on a pinned app's device, and the
+        // merge restarted that app's aggregate — the one gap routing was meant to spare it. Two
+        // aggregates on one device is an arrangement the routing spike verifies.
+        let mut groups: BTreeMap<(AudioObjectID, bool), Vec<usize>> = BTreeMap::new();
 
         for (index, slot) in slots.iter().enumerate() {
             // A destination that has been unplugged resolves back to the default rather than
@@ -1503,14 +1482,15 @@ impl EngineState {
                 .copied()
                 .filter(|device| available.contains(device));
 
-            pinned[index] = destination.is_some();
-            groups
-                .entry(destination.unwrap_or(default_output))
-                .or_default()
-                .push(index);
+            let key = match destination {
+                Some(device) => (device, true),
+                None => (default_output, false),
+            };
+
+            groups.entry(key).or_default().push(index);
         }
 
-        let mut default_group = groups.remove(&default_output).unwrap_or_default();
+        let mut default_group = groups.remove(&(default_output, false)).unwrap_or_default();
 
         // An aggregate whose device and membership both survive the regroup is left running.
         //
@@ -1521,9 +1501,17 @@ impl EngineState {
         let mut aggregates = Vec::with_capacity(groups.len() + 1);
         let mut pending: Vec<(AudioObjectID, Vec<usize>)> = Vec::new();
 
-        for (output, indices) in groups {
+        for ((output, _), indices) in groups {
             match take_matching(&mut running, output, &indices, slots) {
-                Some(kept) => aggregates.push(kept),
+                Some(mut kept) => {
+                    // Kept across a change of what the system calls default, so its relation to
+                    // the default is re-derived. Left as it was, an aggregate that had been the
+                    // default one kept claiming to be, and every poll read its unchanged device
+                    // as a follower on the wrong output — a regroup that touched nothing, fired
+                    // forever.
+                    kept.is_default = false;
+                    aggregates.push(kept);
+                }
                 None => pending.push((output, indices)),
             }
         }
@@ -1556,7 +1544,7 @@ impl EngineState {
         for (output, indices) in pending {
             let members: Vec<&TapSlot> = indices.iter().map(|index| &slots[*index]).collect();
 
-            match start_aggregate(output, &members, mute, false, false) {
+            match start_aggregate(output, &members, mute, false) {
                 Ok(aggregate) => aggregates.push(aggregate),
                 Err(error) => {
                     diagnose!("{output} refused the mix, falling its apps back to the default: {error:?}");
@@ -1575,8 +1563,6 @@ impl EngineState {
         if !default_group.is_empty() {
             default_group.sort_unstable();
 
-            let holds_only_followers = default_group.iter().all(|index| !pinned[*index]);
-
             // A fold-back changed who belongs here, so a kept aggregate is now the wrong mix and
             // has to go before its replacement can reference the same taps.
             let kept_default = if has_folded_back { None } else { kept_default };
@@ -1586,7 +1572,6 @@ impl EngineState {
                     // The device and the apps are the same; only what the system calls default
                     // may have moved under it.
                     kept.is_default = true;
-                    kept.holds_only_followers = holds_only_followers;
                     aggregates.push(kept);
                 }
                 None => {
@@ -1596,13 +1581,7 @@ impl EngineState {
                     // Nothing here is optional. Every tap muted its app at the hardware, so if the
                     // mix is not running the user has lost that audio entirely, with no way back
                     // short of quitting Somul.
-                    aggregates.push(start_aggregate(
-                        default_output,
-                        &members,
-                        mute,
-                        true,
-                        holds_only_followers,
-                    )?);
+                    aggregates.push(start_aggregate(default_output, &members, mute, true)?);
                 }
             }
         }
@@ -2677,6 +2656,35 @@ mod routing_spike {
                 AudioHardwareDestroyAggregateDevice(self.device);
             }
         }
+    }
+
+    /// Whether a pinned app and the followers can share a device without sharing an aggregate.
+    ///
+    /// Grouping by device alone merges them whenever the default lands on the pinned device, and
+    /// the merge restarts the pinned app's aggregate -- the one gap routing was meant to spare it.
+    /// Separate aggregates on one device avoid that, if the HAL allows the arrangement.
+    #[test]
+    #[ignore = "needs a real output device and starts audio hardware"]
+    fn two_aggregates_run_at_once_on_the_same_output() {
+        let output = super::super::default_output_device().expect("a default output");
+        let uid = device_uid(output).expect("its uid");
+
+        println!("output: {uid}");
+
+        let first = RunningAggregate::start(&uid).expect("first aggregate refused to start");
+        let second = RunningAggregate::start(&uid).expect("second aggregate refused to start");
+
+        thread::sleep(Duration::from_millis(400));
+
+        println!("first cycles:  {}", first.cycles());
+        println!("second cycles: {}", second.cycles());
+
+        assert!(first.cycles() > 0, "the first aggregate never rendered");
+        assert!(
+            second.cycles() > 0,
+            "a second aggregate on the same output never rendered -- pinned apps and followers \
+             cannot be kept apart on one device"
+        );
     }
 
     #[test]
