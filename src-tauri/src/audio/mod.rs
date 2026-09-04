@@ -142,6 +142,17 @@ pub struct SessionPeak {
     pub peak: f32,
 }
 
+/// What `audio://device-changed` carries.
+///
+/// The default is named as well as flagged on its entry, because the panel reads the two for
+/// different things: the list renders every device, and the master card follows the one in charge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceChangedPayload {
+    pub devices: Vec<AudioDevice>,
+    pub default_device_id: DeviceId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlatformCapabilities {
@@ -230,6 +241,18 @@ pub trait AudioBackend: Send + Sync {
     /// Asking is expected to consume the change, so two calls without an intervening change do not
     /// both report one.
     fn sessions_may_have_changed(&self) -> Option<bool> {
+        None
+    }
+
+    /// Whether the output devices, or which of them is default, may have changed.
+    ///
+    /// Same contract as [`AudioBackend::sessions_may_have_changed`], including `None` meaning the
+    /// backend has no notification to answer from.
+    ///
+    /// The panel cannot ask for this itself: a device appears while the list is already on screen,
+    /// and nothing the user did prompts a re-read. Left unanswered, a headphone connected after
+    /// the panel opened is absent from every picker until the app is restarted.
+    fn devices_may_have_changed(&self) -> Option<bool> {
         None
     }
 }

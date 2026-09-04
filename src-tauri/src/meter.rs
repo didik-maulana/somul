@@ -9,7 +9,10 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
-use crate::audio::{AudioBackend, AudioSession, MasterState, PlatformCapabilities, SessionPeak};
+use crate::audio::{
+    AudioBackend, AudioSession, DeviceChangedPayload, MasterState, PlatformCapabilities,
+    SessionPeak,
+};
 
 pub const METER_HZ: u32 = 30;
 pub const TICK: Duration = Duration::from_nanos(1_000_000_000 / METER_HZ as u64);
@@ -26,6 +29,12 @@ pub const MASTER_CHANGED_EVENT: &str = "audio://master-changed";
 /// playing afterwards never appears, and one that stops never leaves.
 pub const SESSIONS_CHANGED_EVENT: &str = "audio://sessions-changed";
 const CAPABILITIES_CHANGED_EVENT: &str = "audio://capabilities-changed";
+
+/// Emitted when an output device appears or leaves, or when a different one becomes the default.
+///
+/// The panel cannot notice this on its own: a headphone is connected while the list is already on
+/// screen, and nothing the user did prompts a re-read.
+pub const DEVICE_CHANGED_EVENT: &str = "audio://device-changed";
 
 /// Emitted once when the panel opens, carrying the current system state.
 ///
@@ -180,6 +189,7 @@ pub trait PanelEventEmitter: Send + Sync + 'static {
     fn emit_master_changed(&self, master: &MasterState);
     fn emit_master_resync(&self, master: &MasterState);
     fn emit_capabilities_changed(&self, capabilities: &PlatformCapabilities);
+    fn emit_device_changed(&self, payload: &DeviceChangedPayload);
 }
 
 pub struct MeterLoop {
@@ -203,6 +213,7 @@ impl MeterLoop {
                 let mut last_master: Option<MasterState> = None;
                 let mut last_sessions: Option<Vec<AudioSession>> = None;
                 let mut last_capabilities: Option<PlatformCapabilities> = None;
+                let mut last_devices: Option<DeviceChangedPayload> = None;
                 let mut tick: u32 = 0;
 
                 while is_running.load(Ordering::Acquire) {
@@ -213,6 +224,7 @@ impl MeterLoop {
                         last_master = None;
                         last_sessions = None;
                         last_capabilities = None;
+                        last_devices = None;
                         tick = 0;
 
                         if !gate.wait_until_visible(&is_running) {
@@ -267,6 +279,32 @@ impl MeterLoop {
                             if has_changed {
                                 emitter.emit_sessions_changed(&sessions);
                                 last_sessions = Some(sessions);
+                            }
+                        }
+                    }
+
+                    // Notification-driven, with the session poll as its floor. Enumerating devices
+                    // is cheap next to enumerating processes, but it is not free, and the answer
+                    // changes only when hardware is plugged in or the user picks another output.
+                    let is_device_poll_due = tick % SESSION_POLL_EVERY_TICKS == 0;
+
+                    if backend.devices_may_have_changed().unwrap_or(false) || is_device_poll_due {
+                        if let Ok(devices) = backend.list_output_devices() {
+                            let default_device_id = devices
+                                .iter()
+                                .find(|device| device.is_default)
+                                .map(|device| device.device_id.clone());
+
+                            if let Some(default_device_id) = default_device_id {
+                                let payload = DeviceChangedPayload {
+                                    devices,
+                                    default_device_id,
+                                };
+
+                                if last_devices.as_ref() != Some(&payload) {
+                                    emitter.emit_device_changed(&payload);
+                                    last_devices = Some(payload);
+                                }
                             }
                         }
                     }
@@ -353,6 +391,12 @@ impl<R: tauri::Runtime> PanelEventEmitter for TauriPanelEmitter<R> {
         use tauri::Emitter;
 
         let _ = self.app.emit(CAPABILITIES_CHANGED_EVENT, capabilities);
+    }
+
+    fn emit_device_changed(&self, payload: &DeviceChangedPayload) {
+        use tauri::Emitter;
+
+        let _ = self.app.emit(DEVICE_CHANGED_EVENT, payload);
     }
 }
 
@@ -442,6 +486,7 @@ mod tests {
         masters: Mutex<Vec<MasterState>>,
         resyncs: Mutex<Vec<MasterState>>,
         session_batches: Mutex<Vec<Vec<AudioSession>>>,
+        device_updates: Mutex<Vec<DeviceChangedPayload>>,
         capability_updates: Mutex<Vec<PlatformCapabilities>>,
     }
 
@@ -462,6 +507,13 @@ mod tests {
 
         fn resyncs(&self) -> Vec<MasterState> {
             self.resyncs
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone()
+        }
+
+        fn device_updates(&self) -> Vec<DeviceChangedPayload> {
+            self.device_updates
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone()
@@ -511,6 +563,13 @@ mod tests {
                 .push(capabilities.clone());
         }
 
+        fn emit_device_changed(&self, payload: &DeviceChangedPayload) {
+            self.device_updates
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(payload.clone());
+        }
+
         fn emit_master_resync(&self, master: &MasterState) {
             self.resyncs
                 .lock()
@@ -551,6 +610,60 @@ mod tests {
     fn runs_at_thirty_hertz() {
         assert_eq!(METER_HZ, 30);
         assert_eq!(TICK, Duration::from_nanos(33_333_333));
+    }
+
+    /// The defect this pins. `audio://device-changed` had a listener in the panel and no emitter
+    /// anywhere in Rust, so the device list was fetched once at mount and never again: a headphone
+    /// connected afterwards was missing from every picker until the app was restarted, while the
+    /// master card — which is polled — happily named it.
+    #[test]
+    fn publishes_the_device_list_so_the_panel_can_follow_it() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+
+        thread::sleep(TICK * 4);
+
+        let mut loop_under_test = harness.meter;
+        loop_under_test.stop();
+
+        let updates = harness.emitter.device_updates();
+
+        assert!(
+            !updates.is_empty(),
+            "the panel was never told what output devices exist"
+        );
+        assert!(
+            !updates[0].devices.is_empty(),
+            "the first payload carried no devices, so every picker would render empty"
+        );
+        assert!(
+            updates[0]
+                .devices
+                .iter()
+                .any(|device| device.device_id == updates[0].default_device_id),
+            "the named default is not one of the devices in the same payload"
+        );
+    }
+
+    /// An unchanged device list must not be re-emitted. Each payload replaces what the panel
+    /// holds, and doing that needlessly reopens nothing but costs a render.
+    #[test]
+    fn stays_quiet_while_the_device_list_is_unchanged() {
+        let harness = start();
+
+        harness.gate.set_visible(true);
+
+        thread::sleep(TICK * (SESSION_POLL_EVERY_TICKS + 4));
+
+        let mut loop_under_test = harness.meter;
+        loop_under_test.stop();
+
+        assert_eq!(
+            harness.emitter.device_updates().len(),
+            1,
+            "a static device list was published more than once"
+        );
     }
 
     /// The setting has to reach the loop, not just the panel.
